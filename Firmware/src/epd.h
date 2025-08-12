@@ -1,8 +1,8 @@
 #pragma once
 #include "etime.h"
 #define epd_height 128
-#define epd_width 296
-#define epd_buffer_size ((epd_height/8) * epd_width)
+#define epd_width 250
+#define epd_buffer_size 4000 // ((epd_height/8) * epd_width)
 
 void set_EPD_model(uint8_t model_nr);
 void set_EPD_scene(uint8_t scene);
@@ -10,6 +10,13 @@ void set_EPD_wait_flush();
 
 void init_epd(void);
 uint8_t EPD_read_temp(void);
+
+void EPD_Display_start(uint8_t full_or_partial);
+void EPD_Display_byte(uint8_t data);
+void EPD_Display_buffer(unsigned char *image, int size);
+void EPD_Display_color_change();
+void EPD_Display_end();
+
 void EPD_Display(unsigned char *image, unsigned char * red_image, int size, uint8_t full_or_partial);
 void epd_display_tiff(uint8_t *pData, int iSize);
 void epd_set_sleep(void);

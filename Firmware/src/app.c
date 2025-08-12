@@ -11,8 +11,10 @@
 #include "flash.h"
 #include "ota.h"
 #include "epd.h"
+#include "epd_spi.h"
 #include "etime.h"
 #include "bart_tif.h"
+#include "uart.h"
 
 RAM uint8_t battery_level;
 RAM uint16_t battery_mv;
@@ -44,19 +46,15 @@ _attribute_ram_code_ void main_loop(void)
 {
     blt_sdk_main_loop();
     handler_time();
-    uint8_t flag = 0;
+
     if (time_reached_period(Timer_CH_1, 30))
     {
         battery_mv = get_battery_mv();
         battery_level = get_battery_level(battery_mv);
-        temperature = get_temperature_c();
-        set_adv_data(EPD_read_temp() * 10, battery_level, battery_mv);
+        temperature = EPD_read_temp(); //get_temperature_c();
+        set_adv_data(temperature * 10, battery_level, battery_mv);
         ble_send_battery(battery_level);
-        ble_send_temp(EPD_read_temp() * 10);
-        flag = 1;
-    }
-    if (!flag && time_reached_period(Timer_CH_3, 17)) {
-        set_air_tag_adv_data();
+        ble_send_temp(temperature * 10);
     }
 
     epd_update(get_time(), battery_mv, temperature);
@@ -71,6 +69,7 @@ _attribute_ram_code_ void main_loop(void)
         set_led_color(0);
     }
 
+    
     if (epd_state_handler()) // if epd_update is ongoing enable gpio wakeup to put the display to sleep as fast as possible
     {
         cpu_set_gpio_wakeup(EPD_BUSY, 1, 1);
@@ -81,4 +80,5 @@ _attribute_ram_code_ void main_loop(void)
     {
         blt_pm_proc();
     }
+    
 }

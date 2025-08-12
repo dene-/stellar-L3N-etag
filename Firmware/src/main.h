@@ -26,7 +26,7 @@
 #define EPD_CS		GPIO_PB4
 #define EPD_CLK		GPIO_PB5
 #define EPD_MOSI	GPIO_PB6
-#define EPD_ENABLE	GPIO_PC5
+#define EPD_ENABLE	GPIO_PC5    // was GPIO_PC5 but seems not connected on Stellar-Pro-213N
 
 #define NFC_SDA		GPIO_PC0
 #define NFC_SCL		GPIO_PC1

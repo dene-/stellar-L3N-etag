@@ -46,6 +46,10 @@ _attribute_ram_code_ void set_led_color(uint8_t color)
         gpio_write(LED_RED, 1);
         gpio_write(LED_GREEN, 1);
         break;
+    case 4:
+        gpio_write(LED_BLUE, 0);
+        gpio_write(LED_RED, 0);
+        gpio_write(LED_GREEN, 0);
     default:
         gpio_write(LED_BLUE, 1);
         gpio_write(LED_RED, 1);

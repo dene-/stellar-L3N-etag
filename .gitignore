@@ -5,3 +5,4 @@ flashing
 flash.bat
 Firmware_test_gpio
 .vscode
+.DS_STORE

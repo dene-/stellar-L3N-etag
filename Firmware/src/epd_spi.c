@@ -109,8 +109,11 @@ _attribute_ram_code_ void EPD_CheckStatus(int max_ms)
     WaitMs(1);
     while (EPD_IS_BUSY())
     {
-        if (clock_time() - timeout_start >= timeout_ticks)
-            return; // Here we had a timeout
+        if (clock_time() - timeout_start >= timeout_ticks) {
+            puts("Busy timeout\r\n");
+             return; // Here we had a timeout 
+        }
+
     }
 }
 

@@ -55,9 +55,9 @@ int epd_ble_handle_write(void *p)
 		    bls_att_pushNotifyData(EPD_BLE_CMD_OUT_DP_H, out_buffer, 2);
 			return 0;
 		}
-		if (payload[1] == 0xff) {
+		if (payload[1] == 0xff) { // BLACK bitplan
 		    memcpy(epd_buffer + (payload[2] << 8 | payload[3]), payload + 4, payload_len - 4);
-		} else {
+		} else { // RED bitplan
 		    memcpy(epd_temp + (payload[2] << 8 | payload[3]), payload + 4, payload_len - 4);
 		}
 
