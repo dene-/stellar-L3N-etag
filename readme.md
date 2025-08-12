@@ -50,6 +50,10 @@ Firmware CRC32: 0xe62d501e
 ' '
 ```
 
+### Project Build Using Docker (ARM, etc)
+
+Run `./build_docker.sh`, and wait for the output in `/Firmware` folder.
+
 ### Bluetooth Connection and OTA Update
 
 - 1. You must disconnect the TTL TX line first, otherwise Bluetooth will not connect.
