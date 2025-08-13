@@ -38,25 +38,34 @@ _attribute_ram_code_ void EPD_init(void)
     gpio_setup_up_down_resistor(EPD_ENABLE, PM_PIN_PULLUP_1M);
 }
 
+// Tunable minimal inter-byte delay (us). 0 = fastest. Adjust if signal integrity issues.
+static unsigned char epd_spi_byte_delay_us = 0;
+
 _attribute_ram_code_ void EPD_SPI_Write(unsigned char value)
 {
     unsigned char i;
-
-    WaitUs(10);
+    if (epd_spi_byte_delay_us)
+        WaitUs(epd_spi_byte_delay_us);
     for (i = 0; i < 8; i++)
     {
         gpio_write(EPD_CLK, 0);
-        if (value & 0x80)
-        {
-            gpio_write(EPD_MOSI, 1);
-        }
-        else
-        {
-            gpio_write(EPD_MOSI, 0);
-        }
-        value = (value << 1);
+        gpio_write(EPD_MOSI, (value & 0x80) ? 1 : 0);
+        value <<= 1;
         gpio_write(EPD_CLK, 1);
     }
+}
+
+// Burst write a buffer as DATA with CS low for the whole transfer (reduces per-byte overhead)
+_attribute_ram_code_ void EPD_WriteDataStream(const unsigned char *data, int len)
+{
+    int i;
+    gpio_write(EPD_CS, 0);
+    EPD_ENABLE_WRITE_DATA();
+    for (i = 0; i < len; i++)
+    {
+        EPD_SPI_Write(data[i]);
+    }
+    gpio_write(EPD_CS, 1);
 }
 
 _attribute_ram_code_ uint8_t EPD_SPI_read(void)
@@ -102,6 +111,19 @@ _attribute_ram_code_ void EPD_WriteData(unsigned char data)
     gpio_write(EPD_CS, 1);
 }
 
+// Write the same byte value len times with CS held low
+_attribute_ram_code_ void EPD_WriteDataRepeat(unsigned char value, int len)
+{
+    int i;
+    gpio_write(EPD_CS, 0);
+    EPD_ENABLE_WRITE_DATA();
+    for (i = 0; i < len; i++)
+    {
+        EPD_SPI_Write(value);
+    }
+    gpio_write(EPD_CS, 1);
+}
+
 _attribute_ram_code_ void EPD_CheckStatus(int max_ms)
 {
     unsigned long timeout_start = clock_time();
@@ -109,11 +131,11 @@ _attribute_ram_code_ void EPD_CheckStatus(int max_ms)
     WaitMs(1);
     while (EPD_IS_BUSY())
     {
-        if (clock_time() - timeout_start >= timeout_ticks) {
+        if (clock_time() - timeout_start >= timeout_ticks)
+        {
             puts("Busy timeout\r\n");
-             return; // Here we had a timeout 
+            return; // Here we had a timeout
         }
-
     }
 }
 
@@ -147,11 +169,7 @@ _attribute_ram_code_ void EPD_send_empty_lut(uint8_t lut, int len)
 
 _attribute_ram_code_ void EPD_LoadImage(unsigned char *image, int size, uint8_t cmd)
 {
-    int i;
     EPD_WriteCmd(cmd);
-    for (i = 0; i < size; i++)
-    {
-        EPD_WriteData(image[i]);
-    }
-    WaitMs(2);
+    EPD_WriteDataStream(image, size);
+    // Removed idle delay; rely on BUSY where required
 }

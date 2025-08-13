@@ -12,3 +12,7 @@ void EPD_BWR_213_Display_color_change();
 uint8_t EPD_BWR_213_Display(unsigned char *image, int size, uint8_t full_or_partial);
 uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsigned char *redimage, int size, uint8_t full_or_partial);
 void EPD_BWR_213_set_sleep(void);
+// Partial window support
+void EPD_BWR_213_enter_partial(void);
+void EPD_BWR_213_set_partial_area(uint16_t x_start, uint16_t y_start, uint16_t x_end, uint16_t y_end);
+void EPD_BWR_213_exit_partial(void);

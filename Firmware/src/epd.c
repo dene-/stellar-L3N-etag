@@ -34,9 +34,268 @@ RAM uint8_t epd_wait_update = 0;
 RAM uint8_t hour_refresh = 100;
 RAM uint8_t minute_refresh = 100;
 
-const char *BLE_conn_string[] = {"BLE 0", "BLE 1"};
-RAM uint8_t epd_temperature_is_read = 0;
+// Track partial updates to periodically force a full refresh for ghosting mitigation
+RAM static uint16_t epd_partial_count = 0; // number of consecutive partials
+// Force a full refresh after this many partials if an hour boundary didn't already do it
+#define EPD_MAX_PARTIAL_BEFORE_FULL 30
+// Timestamp (minutes) of last full refresh to ensure at least one per hour
+RAM static int last_full_refresh_hour = -1;
+// Keep last rendered buffers for simple change detection (dirty heuristic)
+// Note: size equals epd_buffer_size; we only allocate if memory allows.
+// Large frame history buffers don't need to survive deep retention sleep; omit RAM retention attribute
+static uint8_t epd_prev_black[epd_buffer_size];
+static uint8_t epd_prev_red[epd_buffer_size];
+
+// Adaptive panel power hold (ms) and telemetry
+static uint16_t epd_power_hold_ms = 15000;     // initial hold window
+static unsigned long epd_last_power_on_ts = 0; // clock_time() of last power on
+static uint8_t epd_powered = 0;
+static unsigned long epd_last_update_ts = 0;        // for interval averaging
+static uint32_t epd_update_interval_avg_ms = 60000; // start with 60s
+static uint16_t epd_last_battery_mv = 0;
+static uint32_t epd_partial_area_accum = 0; // cumulative partial updated area in pixels
+// Row-level hashes for fast dirty detection (supports up to 128 rows for current panels)
+static uint8_t epd_row_hash[128];
+
+// Forward state variables needed by early helper functions
+RAM uint8_t epd_temperature_is_read = 0; // moved up to avoid implicit use
 RAM uint8_t epd_temperature = 0;
+
+// Forward declaration for get_battery_level used in adaptation
+uint8_t get_battery_level(uint16_t mv);
+// Forward declaration for puts if not provided by headers
+int puts(const char *s);
+
+static int epd_can_reuse_power(void)
+{
+    if (!epd_powered)
+        return 0;
+    unsigned long now = clock_time();
+    unsigned long elapsed_ms = (now - epd_last_power_on_ts) / CLOCK_16M_SYS_TIMER_CLK_1MS;
+    return (elapsed_ms < epd_power_hold_ms);
+}
+
+static void epd_power_on_if_needed(void)
+{
+    if (epd_can_reuse_power())
+        return; // already powered and within hold window
+    EPD_init();
+    EPD_POWER_ON();
+    WaitMs(2);
+    // Panel reset only if cold start
+    gpio_write(EPD_RESET, 0);
+    WaitMs(2);
+    gpio_write(EPD_RESET, 1);
+    WaitMs(2);
+    epd_last_power_on_ts = clock_time();
+    epd_powered = 1;
+}
+
+static void epd_power_maybe_off(void)
+{
+    if (!epd_powered)
+        return;
+    if (!epd_can_reuse_power())
+    {
+        epd_set_sleep();
+        epd_powered = 0;
+    }
+}
+
+// Adapt hold window using EMA of update intervals and battery level
+static void epd_adapt_hold(void)
+{
+    unsigned long now = clock_time();
+    if (epd_last_update_ts)
+    {
+        unsigned long delta_ms = (now - epd_last_update_ts) / CLOCK_16M_SYS_TIMER_CLK_1MS;
+        // EMA alpha=0.2: new = 0.8*old + 0.2*delta
+        epd_update_interval_avg_ms = (epd_update_interval_avg_ms * 8 + delta_ms * 2) / 10;
+    }
+    epd_last_update_ts = now;
+    uint8_t batt_pct = get_battery_level(epd_last_battery_mv);
+    uint16_t target;
+    if (epd_update_interval_avg_ms > 120000)
+        target = 2000; // very sparse updates
+    else if (epd_update_interval_avg_ms > 60000)
+        target = 4000;
+    else if (epd_update_interval_avg_ms > 30000)
+        target = 8000;
+    else
+        target = 15000; // frequent updates
+    if (batt_pct < 20 && target > 3000)
+        target = 3000; // conserve when low battery
+    epd_power_hold_ms = target;
+}
+
+// Sampled diff: returns 1 if sampled diff count exceeds threshold (meaning we should force full refresh)
+static int epd_sample_diff_exceeds(const uint8_t *new_b, const uint8_t *prev_b,
+                                   const uint8_t *new_r, const uint8_t *prev_r,
+                                   int size, int has_red)
+{
+    int diff = 0;
+    for (int i = 0; i < size; i += 8)
+    {
+        if (new_b[i] != prev_b[i])
+        {
+            diff++;
+            if (diff > 32)
+                return 1;
+        }
+        if (has_red && new_r && prev_r && new_r[i] != prev_r[i])
+        {
+            diff++;
+            if (diff > 32)
+                return 1;
+        }
+    }
+    return 0;
+}
+
+// Unified frame send with decision logic (hourly full, partial count, diff sampling)
+static void epd_send_frame(uint8_t *black, uint8_t *red, uint16_t w, uint16_t h, uint8_t requested_full, int current_hour, int has_red)
+{
+    int size = (w * h) / 8;
+    int force_full = 0;
+    if (!requested_full)
+    {
+        if (current_hour != last_full_refresh_hour)
+            force_full = 1; // ensure hourly full
+        else if (epd_partial_count >= EPD_MAX_PARTIAL_BEFORE_FULL)
+            force_full = 1; // periodic ghosting mitigation
+        else if (epd_sample_diff_exceeds(black, epd_prev_black, red, epd_prev_red, size, has_red))
+            force_full = 1;
+    }
+    uint8_t final_full = (requested_full || force_full) ? 1 : 0;
+    if (!final_full && epd_model == 2) // BWR 2.13 specific partial window handling
+    {
+        // Compute bounding box of changed bytes (coarse): each row = w pixels => w/8 bytes
+        int row_bytes = w / 8;
+        int first_row = h, last_row = -1;
+        int first_col = w, last_col = -1;
+        for (int y = 0; y < h && y < (int)sizeof(epd_row_hash); y++)
+        {
+            int base = y * row_bytes;
+            uint8_t hash = 0;
+            for (int xb = 0; xb < row_bytes; xb++)
+            {
+                hash ^= black[base + xb];
+                if (has_red && red)
+                    hash ^= red[base + xb];
+            }
+            if (hash == epd_row_hash[y])
+                continue;           // unchanged row
+            epd_row_hash[y] = hash; // mark new hash
+            // Row changed: refine columns
+            for (int xb = 0; xb < row_bytes; xb++)
+            {
+                int idx = base + xb;
+                uint8_t cur_b = black[idx];
+                uint8_t prev_b = epd_prev_black[idx];
+                uint8_t cur_r = has_red ? red[idx] : 0;
+                uint8_t prev_r = has_red ? epd_prev_red[idx] : 0;
+                if (cur_b != prev_b || cur_r != prev_r)
+                {
+                    int x_start_px = xb * 8;
+                    int x_end_px = x_start_px + 7;
+                    if (x_start_px < first_col)
+                        first_col = x_start_px;
+                    if (x_end_px > last_col)
+                        last_col = x_end_px;
+                }
+            }
+            if (y < first_row)
+                first_row = y;
+            if (y > last_row)
+                last_row = y;
+        }
+        // Fallback to full if nothing detected or box too large
+        if (last_row < 0 || (last_row - first_row > h * 3 / 4))
+        {
+            final_full = 1;
+            EPD_Display(black, has_red ? red : NULL, size, final_full);
+        }
+        else
+        {
+            // Ensure panel powered
+            epd_power_on_if_needed();
+            // Enter partial and set window
+            if (first_col >= w)
+                first_col = 0;
+            if (last_col >= w)
+                last_col = w - 1;
+            EPD_BWR_213_enter_partial();
+            EPD_BWR_213_set_partial_area(first_col, first_row, last_col, last_row);
+
+            int width_px = (last_col - first_col + 1);
+            int width_bytes = (width_px + 7) / 8;
+            int x_byte_start = first_col / 8;
+
+            // Black layer (0x10)
+            EPD_WriteCmd(0x10);
+            for (int y = first_row; y <= last_row; y++)
+            {
+                int base = y * row_bytes + x_byte_start;
+                EPD_WriteDataStream(&black[base], width_bytes);
+            }
+            if (has_red && red)
+            {
+                EPD_WriteCmd(0x13);
+                for (int y = first_row; y <= last_row; y++)
+                {
+                    int base = y * row_bytes + x_byte_start;
+                    EPD_WriteDataStream(&red[base], width_bytes);
+                }
+            }
+            // Trigger refresh
+            EPD_WriteCmd(0x12);
+            EPD_BWR_213_exit_partial();
+
+            // Update temperature/read flag and update state bookkeeping similar to EPD_Display
+            epd_temperature_is_read = 1;
+            epd_update_state = 1;
+            // Partial count bookkeeping
+            if (requested_full)
+            {
+                epd_partial_count = 0;
+                last_full_refresh_hour = hour_refresh;
+                epd_partial_area_accum = 0;
+                memset(epd_row_hash, 0, sizeof(epd_row_hash));
+            }
+            else
+            {
+                if (epd_partial_count < 0xFFFF)
+                    epd_partial_count++;
+                uint32_t area = (uint32_t)width_px * (uint32_t)(last_row - first_row + 1);
+                epd_partial_area_accum += area;
+                uint32_t full_area = (uint32_t)w * (uint32_t)h;
+                if (epd_partial_area_accum > full_area + full_area / 2)
+                {
+                    epd_partial_count = EPD_MAX_PARTIAL_BEFORE_FULL; // force soon
+                }
+            }
+        }
+    }
+    else
+    {
+        EPD_Display(black, has_red ? red : NULL, size, final_full);
+        if (final_full)
+        {
+            epd_partial_area_accum = 0;
+            memset(epd_row_hash, 0, sizeof(epd_row_hash));
+        }
+    }
+    // Persist current frame for next diff (store even if we forced full)
+    memcpy(epd_prev_black, black, size);
+    if (has_red && red)
+        memcpy(epd_prev_red, red, size);
+    else
+        memset(epd_prev_red, 0x00, size); // keep stable zeros for black-only scenes
+    // Adapt power hold after sending frame
+    epd_adapt_hold();
+}
+
+const char *BLE_conn_string[] = {"BLE 0", "BLE 1"};
 
 RAM uint8_t epd_buffer[epd_buffer_size];
 uint8_t epd_buffer_red[epd_buffer_size];
@@ -152,16 +411,7 @@ _attribute_ram_code_ void EPD_Display(unsigned char *image, unsigned char *red_i
         EPD_detect_model();
 
     // puts("Trying to update EPD\r\n");
-
-    EPD_init();
-    // system power
-    EPD_POWER_ON();
-    WaitMs(5);
-    // Reset the EPD driver IC
-    gpio_write(EPD_RESET, 0);
-    WaitMs(10);
-    gpio_write(EPD_RESET, 1);
-    WaitMs(10);
+    epd_power_on_if_needed();
 
     if (epd_model == 1)
         epd_temperature = EPD_BW_213_Display(image, size, full_or_partial);
@@ -177,6 +427,18 @@ _attribute_ram_code_ void EPD_Display(unsigned char *image, unsigned char *red_i
 
     epd_temperature_is_read = 1;
     epd_update_state = 1;
+
+    // Update partial/full counters
+    if (full_or_partial)
+    {
+        epd_partial_count = 0;
+        last_full_refresh_hour = hour_refresh; // hour_refresh updated elsewhere
+    }
+    else
+    {
+        if (epd_partial_count < 0xFFFF)
+            epd_partial_count++;
+    }
 }
 
 _attribute_ram_code_ void epd_set_sleep(void)
@@ -188,13 +450,12 @@ _attribute_ram_code_ void epd_set_sleep(void)
         EPD_BW_213_set_sleep();
     else if (epd_model == 2)
         EPD_BWR_213_set_sleep();
-    //    else if (epd_model == 3)
-    //        EPD_BWR_154_set_sleep();
     else if (epd_model == 4 || epd_model == 5)
         EPD_BW_213_ice_set_sleep();
 
     EPD_POWER_OFF();
     epd_update_state = 0;
+    epd_powered = 0;
 }
 
 _attribute_ram_code_ uint8_t epd_state_handler(void)
@@ -202,7 +463,8 @@ _attribute_ram_code_ uint8_t epd_state_handler(void)
     switch (epd_update_state)
     {
     case 0:
-        // Nothing todo
+        // If idle, decide whether to power down after hold window
+        epd_power_maybe_off();
         break;
     case 1: // check if refresh is done and sleep epd if so
         if (epd_model == 1)
@@ -342,7 +604,8 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     obdWriteStringCustom(&obd, (GFXfont *)&DSEG14_Classic_Mini_Regular_40, 75, 65, (char *)buff, 1);
 
     FixBuffer(epd_temp, epd_buffer_red, resolution_w, resolution_h);
-    EPD_Display(epd_buffer, epd_buffer_red, resolution_w * resolution_h / 8, full_or_partial);
+
+    epd_send_frame(epd_buffer, epd_buffer_red, resolution_w, resolution_h, full_or_partial, _time.tm_hour, 1);
 }
 
 _attribute_ram_code_ void epd_display_char(uint8_t data)
@@ -377,21 +640,22 @@ void update_time_scene(struct date_time _time, uint16_t battery_mv, int16_t temp
 
     if (epd_wait_update)
     {
-        scene(_time, battery_mv, temperature, 1);
+        scene(_time, battery_mv, temperature, 1); // force full
         epd_wait_update = 0;
+        return;
     }
 
-    else if (_time.tm_min != minute_refresh)
+    if (_time.tm_min != minute_refresh)
     {
         minute_refresh = _time.tm_min;
         if (_time.tm_hour != hour_refresh)
         {
             hour_refresh = _time.tm_hour;
-            scene(_time, battery_mv, temperature, 1);
+            scene(_time, battery_mv, temperature, 1); // hourly full
         }
         else
         {
-            scene(_time, battery_mv, temperature, 0);
+            scene(_time, battery_mv, temperature, 0); // attempt partial
         }
     }
 }
@@ -497,9 +761,7 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
     }
     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 200, 122, (char *)buff, 1);
 
-    // Convert drawing buffer into panel memory layout
+    // Convert drawing buffer into panel memory layout then send (black only)
     FixBuffer(epd_temp, epd_buffer, epd_width, epd_height);
-
-    // Send to panel (black-only layer)
-    EPD_Display(epd_buffer, NULL, epd_width * epd_height / 8, full_or_partial);
+    epd_send_frame(epd_buffer, NULL, epd_width, epd_height, full_or_partial, _time.tm_hour, 0);
 }
