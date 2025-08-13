@@ -47,7 +47,6 @@ uint8_t lut_bwr_213_23_part[] =
     {
         0x23, 0x40, lut_bwr_213_refresh_time, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-
 #define EPD_BWR_213_test_pattern 0xA5
 _attribute_ram_code_ uint8_t EPD_BWR_213_detect(void)
 {
@@ -57,14 +56,14 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_detect(void)
 
     EPD_WriteCmd(0x32);
     int i;
-    for (i = 0; i < 153; i++)// This model has a 159 bytes LUT storage so we test for that
+    for (i = 0; i < 153; i++) // This model has a 159 bytes LUT storage so we test for that
     {
         EPD_WriteData(EPD_BWR_213_test_pattern);
     }
     EPD_WriteCmd(0x33);
     for (i = 0; i < 153; i++)
     {
-        if(EPD_SPI_read() != EPD_BWR_213_test_pattern) 
+        if (EPD_SPI_read() != EPD_BWR_213_test_pattern)
             return 0;
     }
     return 1;
@@ -72,24 +71,25 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_detect(void)
 
 _attribute_ram_code_ uint8_t EPD_BWR_213_read_temp(void)
 {
-    uint8_t epd_temperature = 0 ;
+    // NOTE: Original implementation combined two bytes into an 8-bit variable,
+    // effectively discarding the first (actual temperature) byte and often
+    // returning 0. For BW variants only the first byte is used; second is a dummy.
+    // Also we must wait for the power-on/busy sequence before reading.
+    uint8_t epd_temperature = 0;
 
+    // Power on analog (same command used elsewhere before reading temp)
     EPD_WriteCmd(0x04);
+    // Wait until controller not busy (mirrors BW 2.13 implementation)
+    EPD_CheckStatus(100);
 
-    WaitMs(1);
-
-    // Temperature sensor read from register
+    // Read temperature register 0x40: first byte is temperature, second is dummy
     EPD_WriteCmd(0x40);
-    epd_temperature = EPD_SPI_read();    
-    epd_temperature = epd_temperature * 256 + EPD_SPI_read();
+    epd_temperature = EPD_SPI_read();
+    EPD_SPI_read(); // discard second byte
 
-    // WaitMs(5);
-    
-    // power off
-    EPD_WriteCmd(0x02);
-
-    // deep sleep
-    EPD_WriteCmd(0x07);
+    // Power down & deep sleep like other variants
+    EPD_WriteCmd(0x02); // power off
+    EPD_WriteCmd(0x07); // deep sleep
     EPD_WriteData(0xa5);
 
     return epd_temperature;
@@ -147,9 +147,9 @@ void EPD_BWR_213_Display_end()
 }
 
 _attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size, uint8_t full_or_partial)
-{    
-    uint8_t epd_temperature = 0 ;
-    
+{
+    uint8_t epd_temperature = 0;
+
     // power on
     EPD_WriteCmd(0x04);
     WaitMs(1);
@@ -160,7 +160,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size,
 
     EPD_WriteCmd(0x40);
     epd_temperature = EPD_SPI_read();
-    EPD_SPI_read();
+    EPD_SPI_read(); // discard second byte
 
     /*EPD_send_lut(lut_bwr_213_20_part, sizeof(lut_bwr_213_20_part));
     EPD_send_empty_lut(0x21, 260);
@@ -169,13 +169,13 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size,
     EPD_send_empty_lut(0x24, 260);*/
 
     set_led_color(2);
-        WaitMs(5);
+    WaitMs(5);
     set_led_color(0);
-        WaitMs(5);
+    WaitMs(5);
     set_led_color(2);
-        WaitMs(5);
-     set_led_color(0);
-        WaitMs(5);       
+    WaitMs(5);
+    set_led_color(0);
+    WaitMs(5);
     //////////////////////// This parts clears the full screen
     EPD_WriteCmd(0x10);
     int i;
@@ -185,38 +185,38 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size,
     }
 
     set_led_color(1);
-        WaitMs(5);
+    WaitMs(5);
     set_led_color(0);
-        WaitMs(5);
+    WaitMs(5);
     set_led_color(1);
-        WaitMs(5);
-     set_led_color(0);
-        WaitMs(5);       
+    WaitMs(5);
+    set_led_color(0);
+    WaitMs(5);
 
-    EPD_WriteCmd(0x13);         // Display_color_change()
+    EPD_WriteCmd(0x13); // Display_color_change()
     for (i = 0; i < 8832; i++)
     {
         EPD_WriteData(0);
     }
 
     set_led_color(3);
-        WaitMs(5);
+    WaitMs(5);
     set_led_color(0);
-        WaitMs(5);
+    WaitMs(5);
     set_led_color(3);
-        WaitMs(5);
-     set_led_color(0);
-        WaitMs(5);       
+    WaitMs(5);
+    set_led_color(0);
+    WaitMs(5);
     // epd_LoadImage
-    EPD_WriteCmd(0x10);// BLACK Color
+    EPD_WriteCmd(0x10); // BLACK Color
 
-    int redpos = size /2;
-    for (int i = 0; i < size ; i++)
+    int redpos = size / 2;
+    for (int i = 0; i < size; i++)
     {
         EPD_WriteData(image[i]);
     }
 
-    /*EPD_WriteCmd(0x13);// RED Color 
+    /*EPD_WriteCmd(0x13);// RED Color
     for (i = 0; i < redpos; i++)
     {
         EPD_WriteData(~image[redpos+i]);
@@ -238,10 +238,10 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size,
     return epd_temperature;
 }
 
-_attribute_ram_code_ uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsigned char *redimage,int size, uint8_t full_or_partial)
-{    
-    uint8_t epd_temperature = 0 ;
-    
+_attribute_ram_code_ uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsigned char *redimage, int size, uint8_t full_or_partial)
+{
+    uint8_t epd_temperature = 0;
+
     // power on
     EPD_WriteCmd(0x04);
     WaitMs(1);
@@ -250,9 +250,14 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsig
     EPD_WriteData(scan_direction); //| LUT_REG);
     EPD_WriteData(0x0f);
 
+    // Power on analog (same command used elsewhere before reading temp)
+    EPD_WriteCmd(0x04);
+    // Wait until controller not busy (mirrors BW 2.13 implementation)
+    EPD_CheckStatus(100);
+
     EPD_WriteCmd(0x40);
     epd_temperature = EPD_SPI_read();
-    epd_temperature = epd_temperature * 256 + EPD_SPI_read();
+    EPD_SPI_read(); // discard second byte
 
     /*EPD_send_lut(lut_bwr_213_20_part, sizeof(lut_bwr_213_20_part));
     EPD_send_empty_lut(0x21, 260);
@@ -262,8 +267,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsig
 
     //////////////////////// This parts clears the full screen
     set_led_color(1);
-    
-    
+
     EPD_WriteCmd(0x10);
     int i;
     for (i = 0; i < 4000; i++)
@@ -271,25 +275,27 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsig
         EPD_WriteData(0);
     }
 
-    EPD_WriteCmd(0x13);         // Display_color_change()
+    EPD_WriteCmd(0x13); // Display_color_change()
     for (i = 0; i < 4000; i++)
     {
         EPD_WriteData(0);
     }
-    
+
     WaitMs(5);
 
     set_led_color(4);
 
-    if (image != NULL) {
-        EPD_WriteCmd(0x10);// BLACK Color start Data
-        for (int i = 0; i < size ; i++)
+    if (image != NULL)
+    {
+        EPD_WriteCmd(0x10); // BLACK Color start Data
+        for (int i = 0; i < size; i++)
         {
             EPD_WriteData(image[i]);
         }
     }
-    if (redimage != NULL) {
-        EPD_WriteCmd(0x13);// RED Color start Data
+    if (redimage != NULL)
+    {
+        EPD_WriteCmd(0x13); // RED Color start Data
         for (int i = 0; i < size; i++)
         {
             EPD_WriteData(redimage[i]);
@@ -305,7 +311,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsig
     }
     */
     //  trigger display refresh
-    set_led_color(1); 
+    set_led_color(1);
     EPD_WriteCmd(0x12);
 
     return epd_temperature;
@@ -319,5 +325,4 @@ _attribute_ram_code_ void EPD_BWR_213_set_sleep(void)
     // deep sleep
     EPD_WriteCmd(0x07);
     EPD_WriteData(0xa5);
-
 }
