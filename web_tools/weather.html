@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BWR e‑ink 250×128</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="application/javascript" src="js/dithering.js"></script>
+    <script type="application/javascript" src="js/utils.js"></script>
+    <style>
+      .eink {
+        color: #000;
+        background: #fff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+
+      .ink-red {
+        color: #f00;
+      }
+
+      .snap,
+      #capture {
+        image-rendering: pixelated;
+      }
+
+      body {
+        line-height: 0.5 !important;
+      }
+
+      #capture,
+      .ui {
+        line-height: normal;
+      }
+
+      #capture span {
+        text-box-trim: trim-both;
+        text-box-edge: cap alphabetic;
+      }
+
+      #capture svg path,
+      #capture svg line {
+        stroke: red;
+      }
+    </style>
+  </head>
+  <body class="bg-zinc-100 text-zinc-900">
+    <div id="app" v-scope class="p-4 max-w-xl mx-auto">
+      <div class="ui mb-3 flex items-end gap-2">
+        <div class="grow">
+          <label class="block text-sm mb-1">Location</label>
+          <input
+            v-model.trim="location"
+            placeholder="City or lat,lon"
+            class="w-full border px-3 py-2 rounded-xl"
+            @change="saveLocation"
+            @blur="saveLocation"
+          />
+          <label
+            class="mt-1 inline-flex items-center gap-1 text-[11px] cursor-pointer select-none"
+          >
+            <input type="checkbox" v-model="use24h" @change="saveUse24h" />
+            <span>24h</span>
+          </label>
+        </div>
+        <button
+          @click="fetchWeather"
+          class="px-4 py-2 bg-black text-white rounded-xl"
+        >
+          Fetch
+        </button>
+        <button
+          @click="renderToCanvas"
+          class="px-4 py-2 bg-red-600 text-white rounded-xl"
+        >
+          Render
+        </button>
+        <button
+          @click="preConnect"
+          class="px-4 py-2 bg-emerald-600 text-white rounded-xl"
+        >
+          {{ bleConnected ? 'Disconnect' : 'Connect' }}
+        </button>
+        <button
+          @click="reConnect"
+          class="px-4 py-2 bg-amber-600 text-white rounded-xl"
+          :disabled="!bleDevice"
+        >
+          Reconnect
+        </button>
+      </div>
+
+      <!-- Preview card -->
+      <div class="flex justify-center mb-4">
+        <!-- <div class="bg-white border rounded-xl shadow-sm">
+          <div
+            id="capture"
+            class="eink snap w-[250px] h-[128px] flex flex-col justify-between p-3 gap-1"
+          >
+            <span class="text-[11px]">{{ weekday }}, {{ dateStr }}</span>
+            <div class="flex items-center justify-start flex-grow">
+              <div class="font-extrabold flex gap-1">
+                <span class="text-[40px]">{{ timeMain }}</span>
+                <span
+                  v-if="timeSuffix"
+                  class="text-[14px] font-bold align-top self-end"
+                >
+                  {{ timeSuffix }}
+                </span>
+              </div>
+            </div>
+            <div
+              class="text-[12px] font-semibold inline-flex items-center gap-1"
+            >
+              <span class="ink-red text-[12px]">●</span>
+              <span>{{ locationLabel }}</span>
+            </div>
+            <span class="text-[12px] font-semibold">
+              {{ roundedTemp }}°C | {{ weatherText }}
+            </span>
+            <span class="text-[11px]">
+              {{ windSpeedDisplay }} {{ windDirDisplay }}
+            </span>
+          </div>
+        </div> -->
+        <div class="bg-white border rounded-xl shadow-sm">
+          <div
+            id="capture"
+            class="eink snap w-[250px] h-[128px] flex flex-row p-2 pr-3 gap-1"
+          >
+            <!-- Icon column -->
+            <div class="w-[48px] flex items-center justify-center">
+              <div v-if="iconSvg" v-html="iconSvg" class="size-[46px]"></div>
+            </div>
+            <!-- Data column -->
+            <div class="flex flex-col justify-between flex-1 py-1">
+              <div class="text-[11px] leading-none truncate max-w-full">
+                {{ weekday }}, {{ dateStr }}
+              </div>
+              <div class="flex items-center justify-start">
+                <div class="font-extrabold tracking-tight leading-none">
+                  <span class="text-[38px]">{{ timeMain }}</span>
+                  <span
+                    v-if="timeSuffix"
+                    class="ml-1 text-[16px] font-bold align-top"
+                    >{{ timeSuffix }}</span
+                  >
+                </div>
+              </div>
+              <div
+                class="text-[12px] font-semibold flex items-center gap-1 leading-none"
+              >
+                <div class="truncate flex-grow">{{ locationLabel }}</div>
+              </div>
+              <div class="text-[12px] font-semibold leading-none truncate">
+                {{ roundedTemp }}°C | {{ weatherText }}
+              </div>
+              <div class="text-[11px] leading-none">
+                {{ windSpeedDisplay }} {{ windDirDisplay }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="text-sm mb-1 text-center">Rendered canvas (1×, 250×128):</div>
+      <div class="flex justify-center">
+        <canvas
+          id="outCanvas"
+          width="250"
+          height="128"
+          class="border border-dashed rounded-md bg-white"
+        ></canvas>
+      </div>
+      <div class="mt-4">
+        <div class="text-xs font-semibold mb-1">BLE Log</div>
+        <div
+          id="bleLog"
+          class="text-[11px] h-36 overflow-y-auto border rounded bg-white p-2 font-mono leading-none"
+        ></div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/petite-vue@0.4.1/dist/petite-vue.iife.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script>
+      // ==== BLE logic (adapted from index.html) ====
+      let bleDevice;
+      let gattServer;
+      let epdService;
+      let rxtxService;
+      let epdCharacteristic;
+      let rxtxCharacteristic;
+      let reconnectTrys = 0;
+      let autoConnectAttempts = 0;
+
+      function addBleLog(msg) {
+        const box = document.getElementById("bleLog");
+        const ts = new Date();
+        const t = ts.toLocaleTimeString();
+        if (box) {
+          box.innerHTML += `[${t}] ${msg.replace(/</g, "&lt;")}<br>`;
+          box.scrollTop = box.scrollHeight;
+        } else {
+          console.log("[BLE]", msg);
+        }
+      }
+
+      function resetVariables() {
+        gattServer = null;
+        epdService = null;
+        epdCharacteristic = null;
+        rxtxCharacteristic = null;
+        rxtxService = null;
+      }
+
+      async function handleError(error) {
+        addBleLog("Error: " + (error?.message || error));
+        resetVariables();
+        if (!bleDevice) return;
+        if (reconnectTrys <= 5) {
+          reconnectTrys++;
+          await connect();
+        } else reconnectTrys = 0;
+      }
+
+      async function sendCommand(cmd) {
+        if (epdCharacteristic) {
+          await epdCharacteristic.writeValueWithResponse(cmd);
+        }
+      }
+
+      async function rxTxSendCommand(cmd) {
+        if (rxtxCharacteristic) {
+          await rxtxCharacteristic.writeValueWithResponse(cmd);
+        }
+      }
+
+      async function triggerRxTxCmd(cmd) {
+        addBleLog(`Tx RxTx: ${cmd}`);
+        await rxTxSendCommand(hexToBytes(cmd));
+      }
+
+      async function sendBufferData(value, type) {
+        let code = "ff";
+        if (type === "bwr") code = "00";
+        const step = 480;
+        for (let i = 0; i < value.length; i += step) {
+          await sendCommand(
+            hexToBytes(
+              "03" + code + intToHex(i / 2, 2) + value.substring(i, i + step)
+            )
+          );
+        }
+      }
+
+      async function upload_image(canvasId = "outCanvas") {
+        if (!epdCharacteristic) return; // not connected
+        try {
+          const canvas = document.getElementById(canvasId);
+          addBleLog("Uploading image ...");
+          await sendCommand(hexToBytes("0000"));
+          await sendCommand(hexToBytes("020000"));
+          await sendBufferData(bytesToHex(canvas2bytes(canvas)), "bw");
+          await sendBufferData(bytesToHex(canvas2bytes(canvas, "bwr")), "bwr");
+          await sendCommand(hexToBytes("0101"));
+          addBleLog("Upload done");
+        } catch (e) {
+          addBleLog("Upload failed: " + e.message);
+        }
+      }
+
+      function disconnect() {
+        resetVariables();
+        App.bleConnected = false;
+        addBleLog("Disconnected");
+      }
+
+      async function preConnect() {
+        if (gattServer && gattServer.connected) {
+          if (bleDevice && bleDevice.gatt.connected)
+            bleDevice.gatt.disconnect();
+          return;
+        }
+        reconnectTrys = 0;
+        bleDevice = await navigator.bluetooth.requestDevice({
+          optionalServices: [
+            "0000221f-0000-1000-8000-00805f9b34fb",
+            "00001f10-0000-1000-8000-00805f9b34fb",
+            "13187b10-eba9-a3ba-044e-83d3217d9a38",
+          ],
+          acceptAllDevices: true,
+        });
+        bleDevice.addEventListener("gattserverdisconnected", disconnect);
+        try {
+          await connect();
+        } catch (e) {
+          await handleError(e);
+        }
+      }
+
+      async function connectRXTX() {
+        rxtxService = await gattServer.getPrimaryService(
+          "00001f10-0000-1000-8000-00805f9b34fb"
+        );
+        rxtxCharacteristic = await rxtxService.getCharacteristic(
+          "00001f1f-0000-1000-8000-00805f9b34fb"
+        );
+        addBleLog("RXTX characteristic ready");
+      }
+
+      async function reConnect() {
+        if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+        resetVariables();
+        setTimeout(async () => {
+          if (bleDevice) await connect();
+        }, 300);
+      }
+
+      async function connect() {
+        if (!epdCharacteristic) {
+          gattServer = await bleDevice.gatt.connect();
+          addBleLog("GATT connected: " + (bleDevice.name || "Unnamed"));
+          epdService = await gattServer.getPrimaryService(
+            "13187b10-eba9-a3ba-044e-83d3217d9a38"
+          );
+          addBleLog("EPD service found");
+          epdCharacteristic = await epdService.getCharacteristic(
+            "4b646063-6264-f3a7-8941-e65356ea82fe"
+          );
+          await epdCharacteristic.startNotifications();
+          /* epdCharacteristic.addEventListener(
+            "characteristicvaluechanged",
+            (event) => {
+              addBleLog("Notify len=" + event.target.value.byteLength);
+            }
+          ); */
+          await connectRXTX();
+          App.bleConnected = true;
+          // Put image more
+          await triggerRxTxCmd("e100");
+          // Ensure latest canvas content is rendered before uploading
+          await App.renderToCanvas();
+          await upload_image();
+          try {
+            localStorage.setItem("lastBleName", bleDevice.name || "");
+          } catch (e) {}
+        }
+      }
+
+      // Try to auto-connect to a previously paired THX* device (Chrome supports navigator.bluetooth.getDevices)
+      async function attemptAutoConnect() {
+        if (!("bluetooth" in navigator)) {
+          addBleLog("Web Bluetooth not supported");
+          return;
+        }
+        if (!navigator.bluetooth.getDevices) {
+          addBleLog(
+            "getDevices() unsupported (requires secure context + recent Chromium). Fallback to stored last device."
+          );
+          try {
+            const last = localStorage.getItem("lastBleName");
+            if (last) {
+              addBleLog(
+                "Last connected device: " +
+                  last +
+                  ". Click Connect to pair again."
+              );
+            } else {
+              addBleLog("Use Connect button to select your THX device.");
+            }
+          } catch (e) {}
+          return;
+        }
+        try {
+          autoConnectAttempts++;
+          addBleLog("Auto-connect attempt #" + autoConnectAttempts);
+          const devices = await navigator.bluetooth.getDevices();
+          addBleLog("Granted devices: " + devices.length);
+          devices.forEach((d) => addBleLog(" - " + (d.name || "Unnamed")));
+          const candidate = devices.find(
+            (d) => d.name && d.name.startsWith("THX")
+          );
+          if (candidate) {
+            addBleLog("Found THX device: " + candidate.name + " connecting...");
+            bleDevice = candidate;
+            bleDevice.addEventListener("gattserverdisconnected", disconnect);
+            await connect();
+          } else if (autoConnectAttempts < 3 && !App.bleConnected) {
+            setTimeout(attemptAutoConnect, 1500);
+          } else {
+            addBleLog("No THX* device among granted devices");
+          }
+        } catch (e) {
+          addBleLog("Auto-connect failed: " + e.message);
+        }
+      }
+
+      function describeWMO(code) {
+        const map = new Map([
+          [0, "Clear sky"],
+          [1, "Mainly clear"],
+          [2, "Partly cloudy"],
+          [3, "Overcast"],
+          [45, "Fog"],
+          [48, "Depositing rime fog"],
+          [51, "Light drizzle"],
+          [53, "Moderate drizzle"],
+          [55, "Dense drizzle"],
+          [56, "Light freezing drizzle"],
+          [57, "Dense freezing drizzle"],
+          [61, "Light rain"],
+          [63, "Moderate rain"],
+          [65, "Heavy rain"],
+          [66, "Light freezing rain"],
+          [67, "Heavy freezing rain"],
+          [71, "Light snowfall"],
+          [73, "Moderate snowfall"],
+          [75, "Heavy snowfall"],
+          [77, "Snow grains"],
+          [80, "Slight rain showers"],
+          [81, "Moderate rain showers"],
+          [82, "Violent rain showers"],
+          [85, "Slight snow showers"],
+          [86, "Heavy snow showers"],
+          [95, "Thunderstorm"],
+          [96, "Thunderstorm w/ slight hail"],
+          [99, "Thunderstorm w/ heavy hail"],
+        ]);
+        if (map.has(code)) return map.get(code);
+        return `Code ${code}`;
+      }
+
+      function dirToCardinal(deg) {
+        if (deg == null || isNaN(deg)) return "";
+        const dirs = [
+          "N",
+          "NNE",
+          "NE",
+          "ENE",
+          "E",
+          "ESE",
+          "SE",
+          "SSE",
+          "S",
+          "SSW",
+          "SW",
+          "WSW",
+          "W",
+          "WNW",
+          "NW",
+          "NNW",
+        ];
+        return dirs[Math.round(deg / 22.5) % 16];
+      }
+
+      const App = {
+        location: (function () {
+          try {
+            const v = localStorage.getItem("weatherLocation");
+            return v && v.trim() ? v : "Barcelona";
+          } catch (e) {
+            return "Barcelona";
+          }
+        })(),
+        units: "metric",
+        now: new Date(),
+        temp: null,
+        code: null,
+        tzId: null,
+        tzAbbr: null,
+        cityLocale: null,
+        use24h: (function () {
+          try {
+            const v = localStorage.getItem("use24h");
+            if (v !== null) return v === "true";
+          } catch (e) {}
+          return true; // default to 24h
+        })(),
+        windSpeed: null,
+        windDir: null,
+        bleConnected: false,
+        get bleDevice() {
+          return bleDevice;
+        },
+        get weekday() {
+          const opts = { weekday: "long" };
+          if (this.tzId) opts.timeZone = this.tzId;
+          return this.now.toLocaleDateString(
+            this.cityLocale || undefined,
+            opts
+          );
+        },
+        get dateStr() {
+          const opts = { year: "numeric", month: "short", day: "numeric" };
+          if (this.tzId) opts.timeZone = this.tzId;
+          return this.now.toLocaleDateString(
+            this.cityLocale || undefined,
+            opts
+          );
+        },
+        get timeStr() {
+          // legacy full string
+          const opts = { hour: "2-digit", minute: "2-digit" };
+          if (this.tzId) opts.timeZone = this.tzId;
+          return this.now.toLocaleTimeString(
+            this.cityLocale || undefined,
+            opts
+          );
+        },
+        get timeMain() {
+          const opts = {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: !this.use24h,
+          };
+          if (this.tzId) opts.timeZone = this.tzId;
+          const parts = new Intl.DateTimeFormat(
+            this.cityLocale || undefined,
+            opts
+          ).formatToParts(this.now);
+          const hour = parts.find((p) => p.type === "hour")?.value || "";
+          const minute = parts.find((p) => p.type === "minute")?.value || "";
+          const sep =
+            parts.find((p) => p.type === "literal" && p.value.includes(":"))
+              ?.value || ":";
+          return `${hour}${sep}${minute}`;
+        },
+        get timeSuffix() {
+          if (this.use24h) return ""; // no AM/PM in 24h mode
+          const opts = { hour: "2-digit", minute: "2-digit", hour12: true };
+          if (this.tzId) opts.timeZone = this.tzId;
+          const parts = new Intl.DateTimeFormat(
+            this.cityLocale || undefined,
+            opts
+          ).formatToParts(this.now);
+          return (
+            parts.find((p) => p.type === "dayPeriod")?.value?.toUpperCase() ||
+            ""
+          );
+        },
+        get locationLabel() {
+          return this.location;
+        },
+        get roundedTemp() {
+          return this.temp == null ? "—" : Math.round(this.temp);
+        },
+        get weatherText() {
+          return this.code == null ? "" : describeWMO(this.code);
+        },
+        get iconCategory() {
+          const c = this.code;
+          if (c == null) return null;
+          if (c === 0) return "sun";
+          if ([1, 2].includes(c)) return "sun-cloud";
+          if (c === 3) return "cloud";
+          if ([45, 48].includes(c)) return "fog";
+          if (c >= 51 && c <= 57) return "drizzle";
+          if ((c >= 61 && c <= 67) || [80, 81, 82].includes(c)) return "rain";
+          if ((c >= 71 && c <= 77) || [85, 86].includes(c)) return "snow";
+          if ([95].includes(c)) return "thunder";
+          if ([96, 99].includes(c)) return "thunder-hail";
+          return "cloud";
+        },
+        get iconSvg() {
+          const baseProps =
+            'stroke="black" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"';
+          const small = 'stroke-width="2"';
+          const icons = {
+            sun: `<svg viewBox="0 0 64 64">\n <circle cx="32" cy="32" r="12" ${baseProps}/><g ${baseProps}>\n <line x1="32" y1="6" x2="32" y2="14"/>\n <line x1="32" y1="50" x2="32" y2="58"/>\n <line x1="6" y1="32" x2="14" y2="32"/>\n <line x1="50" y1="32" x2="58" y2="32"/>\n <line x1="13" y1="13" x2="19" y2="19"/>\n <line x1="45" y1="45" x2="51" y2="51"/>\n <line x1="13" y1="51" x2="19" y2="45"/>\n <line x1="45" y1="19" x2="51" y2="13"/>\n </g></svg>`,
+            cloud: `<svg viewBox="0 0 64 64"><path d="M20 46h26a10 10 0 0 0 0-20 16 16 0 0 0-31-2A10 10 0 0 0 20 46Z" ${baseProps}/></svg>`,
+            "sun-cloud": `<svg viewBox="0 0 64 64">\n <circle cx="22" cy="22" r="9" ${baseProps}/><path d="M20 50h22a9 9 0 0 0 0-18 14 14 0 0 0-27-2 9 9 0 0 0 5 20Z" ${baseProps}/></svg>`,
+            fog: `<svg viewBox="0 0 64 64"><path d="M18 40h26a10 10 0 0 0 0-20 16 16 0 0 0-31-2A10 10 0 0 0 18 40Z" ${baseProps}/><line x1="12" y1="46" x2="52" y2="46" ${baseProps}/><line x1="16" y1="52" x2="48" y2="52" ${baseProps}/></svg>`,
+            drizzle: `<svg viewBox="0 0 64 64"><path d="M20 40h22a9 9 0 0 0 0-18 14 14 0 0 0-27-2A9 9 0 0 0 20 40Z" ${baseProps}/><g ${baseProps}>\n <line x1="22" y1="46" x2="20" y2="52"/>\n <line x1="32" y1="46" x2="30" y2="52"/>\n <line x1="42" y1="46" x2="40" y2="52"/>\n </g></svg>`,
+            rain: `<svg viewBox="0 0 64 64"><path d="M20 38h24a10 10 0 0 0 0-20 16 16 0 0 0-31-2A10 10 0 0 0 20 38Z" ${baseProps}/><g ${baseProps}>\n <line x1="22" y1="44" x2="18" y2="56"/>\n <line x1="32" y1="44" x2="28" y2="56"/>\n <line x1="42" y1="44" x2="38" y2="56"/>\n </g></svg>`,
+            snow: `<svg viewBox="0 0 64 64"><path d="M20 38h24a10 10 0 0 0 0-20 16 16 0 0 0-31-2A10 10 0 0 0 20 38Z" ${baseProps}/><g ${small} stroke="black" fill="none" stroke-linecap="round">\n <path d="M24 44l2 8"/><path d="M24 44l-2 8"/><path d="M32 44l2 8"/><path d="M32 44l-2 8"/><path d="M40 44l2 8"/><path d="M40 44l-2 8"/>\n </g></svg>`,
+            thunder: `<svg viewBox="0 0 64 64"><path d="M20 38h24a10 10 0 0 0 0-20 16 16 0 0 0-31-2A10 10 0 0 0 20 38Z" ${baseProps}/><polyline points="30 40 24 54 34 50 30 62" ${baseProps} /></svg>`,
+            "thunder-hail": `<svg viewBox="0 0 64 64"><path d="M20 36h24a10 10 0 0 0 0-20 16 16 0 0 0-31-2A10 10 0 0 0 20 36Z" ${baseProps}/><polyline points="30 38 24 52 34 48 30 60" ${baseProps} /><g ${baseProps}><circle cx="22" cy="46" r="2"/><circle cx="40" cy="46" r="2"/></g></svg>`,
+          };
+          const cat = this.iconCategory;
+          return cat && icons[cat] ? icons[cat] : null;
+        },
+        get windSpeedDisplay() {
+          if (this.windSpeed == null) return "";
+          return Math.round(this.windSpeed) + "km/h";
+        },
+        get windDirDisplay() {
+          if (this.windDir == null) return "";
+          return dirToCardinal(this.windDir);
+        },
+
+        async fetchWeather() {
+          try {
+            let lat = 41.3874;
+            let lon = 2.1686;
+
+            const m = this.location.match(
+              /^\s*(-?\d+\.?\d*),\s*(-?\d+\.?\d*)\s*$/
+            );
+
+            if (m) {
+              lat = parseFloat(m[1]);
+              lon = parseFloat(m[2]);
+            } else if (this.location.toLowerCase() !== "barcelona") {
+              const geoRes = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+                  this.location
+                )}`
+              );
+
+              const geoData = await geoRes.json();
+
+              console.log(geoData);
+
+              if (geoData.length > 0) {
+                const g0 = geoData[0];
+                lat = parseFloat(g0.lat);
+                lon = parseFloat(g0.lon);
+                this.location =
+                  g0.display_name?.split(",")[0] || g0.name || this.location;
+                // Attempt locale mapping from country code
+                if (g0.address && g0.address.country_code) {
+                  const cc = g0.address.country_code.toLowerCase();
+                  const localeMap = {
+                    es: "es-ES",
+                    us: "en-US",
+                    gb: "en-GB",
+                    fr: "fr-FR",
+                    de: "de-DE",
+                    it: "it-IT",
+                    pt: "pt-PT",
+                    br: "pt-BR",
+                    cn: "zh-CN",
+                    tw: "zh-TW",
+                    jp: "ja-JP",
+                    kr: "ko-KR",
+                    ru: "ru-RU",
+                    ua: "uk-UA",
+                    pl: "pl-PL",
+                    se: "sv-SE",
+                    no: "nb-NO",
+                    dk: "da-DK",
+                    fi: "fi-FI",
+                    nl: "nl-NL",
+                    be: "nl-BE",
+                    ch: "de-CH",
+                    at: "de-AT",
+                    ca: "en-CA",
+                    au: "en-AU",
+                    nz: "en-NZ",
+                    mx: "es-MX",
+                    ar: "es-AR",
+                    cl: "es-CL",
+                  };
+                  this.cityLocale = localeMap[cc] || cc;
+                }
+              }
+
+              this.saveLocation();
+            }
+
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.current_weather) {
+              this.temp = data.current_weather.temperature;
+              this.code = data.current_weather.weathercode;
+              this.windSpeed = data.current_weather.windspeed;
+              this.windDir = data.current_weather.winddirection;
+            }
+            if (data.timezone) {
+              this.tzId = data.timezone;
+              this.tzAbbr = data.timezone_abbreviation || null;
+            }
+            // If locale not set from geocode, try derive from timezone (e.g., Europe/Berlin -> de-DE)
+            if (!this.cityLocale && this.tzId) {
+              const tzPart = this.tzId.split("/")[0];
+              const regionLangMap = {
+                Europe: "en-GB",
+                Asia: "en-US",
+                America: "en-US",
+                Africa: "en-US",
+                Australia: "en-AU",
+              };
+              this.cityLocale = regionLangMap[tzPart] || undefined;
+            }
+
+            await this.renderToCanvas();
+            await upload_image();
+          } catch (e) {
+            this.code = null;
+            this.temp = null;
+          }
+        },
+        saveLocation() {
+          try {
+            localStorage.setItem("weatherLocation", this.location || "");
+          } catch (e) {}
+        },
+        saveUse24h() {
+          try {
+            localStorage.setItem("use24h", this.use24h ? "true" : "false");
+          } catch (e) {}
+          // Re-render after changing time format
+          this.renderToCanvas();
+        },
+
+        async renderToCanvas() {
+          const captureNode = document.getElementById("capture");
+          // Wait for reactive DOM update (time change) to flush before capture
+          await new Promise((r) =>
+            requestAnimationFrame(() => requestAnimationFrame(r))
+          );
+
+          const canvas = await html2canvas(captureNode, {
+            backgroundColor: "#fff",
+            scale: 1,
+            width: 250,
+            height: 128,
+          });
+
+          const out = document.getElementById("outCanvas");
+          const ctx = out.getContext("2d");
+          ctx.clearRect(0, 0, out.width, out.height);
+          ctx.drawImage(canvas, 0, 0);
+          // Apply fixed bwr_Atkinson palette dithering for device compatibility
+          try {
+            ditheringCanvasByPalette(out, bwrPalette, "bwr_Atkinson");
+          } catch (e) {
+            console.warn("Dither failed", e);
+          }
+        },
+
+        async mounted() {
+          // Initial immediate weather fetch & first render
+          try {
+            await this.fetchWeather();
+          } catch (e) {
+            console.warn(e);
+          }
+          try {
+            await this.renderToCanvas();
+          } catch (e) {
+            console.warn(e);
+          }
+          // Ensure persisted if loaded default
+          this.saveLocation();
+
+          // Attempt auto-connect to previously paired THX* device
+          attemptAutoConnect();
+
+          this._tickRunning = false;
+          const self = this;
+
+          async function minuteTick() {
+            if (self._tickRunning) {
+              return;
+            }
+            self._tickRunning = true;
+            // Schedule next tick immediately to avoid drift from processing time
+            scheduleNext();
+            try {
+              self.now = new Date();
+              const now = self.now;
+
+              // Always render first so UI updates before device upload
+              await self.renderToCanvas();
+              if (self.bleConnected) {
+                await upload_image();
+              }
+
+              if (now.getMinutes() % 5 === 0) {
+                await self.fetchWeather();
+                // Re-render after new data
+                await self.renderToCanvas();
+                if (self.bleConnected) {
+                  await upload_image();
+                }
+              }
+            } catch (err) {
+              console.error("Minute tick error", err);
+            } finally {
+              self._tickRunning = false;
+            }
+          }
+          function scheduleNext() {
+            const msToNext = 60000 - (Date.now() % 60000);
+            self._minuteTimer = setTimeout(minuteTick, msToNext);
+          }
+          // Kick off first aligned tick
+          minuteTick();
+        },
+        // expose BLE actions
+        preConnect,
+        reConnect,
+        attemptAutoConnect,
+      };
+
+      PetiteVue.createApp(App).mount();
+      App.mounted();
+    </script>
+  </body>
+</html>

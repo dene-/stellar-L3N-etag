@@ -429,20 +429,8 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
     sprintf(buff, "THX_%02X%02X%02X", mac_public[2], mac_public[1], mac_public[0]);
     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 1, 17, (char *)buff, 1);
 
-    // BLE connection state (appears to map to two hard‑coded string endings)
-    if (ble_get_connected())
-    {
-        sprintf(buff, "78%s", "234");
-    }
-    else
-    {
-        sprintf(buff, "78%s", "56");
-    }
-    // Write BLE state (Chinese font variant)
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16_zh, 120, 21, (char *)buff, 1);
-
     // Battery icon rectangle
-    obdRectangle(&obd, 235, 2, 249, 22, 1, 1);
+    obdRectangle(&obd, 225, 2, 249, 22, 1, 1);
 
     // Battery percentage inside battery outline (drawn white on black fill)
     sprintf(buff, "%d", battery_level);
@@ -474,28 +462,6 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
     // Date (YYYY-MM-DD)
     sprintf(buff, "%d-%02d-%02d", _time.tm_year, _time.tm_month, _time.tm_day);
     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1);
-
-    // Weekday display: seems to offset char code; special case for week == 7
-    if (_time.tm_week == 7)
-    {
-        sprintf(buff, "9:%c", _time.tm_week + 0x20 + 6);
-    }
-    else
-    {
-        sprintf(buff, "9:%c", _time.tm_week + 0x20);
-    }
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 120, 122, (char *)buff, 1);
-
-    // Day/Night indicator (hard-coded strings based on hour range)
-    if (_time.tm_hour > 7 && _time.tm_hour < 20)
-    {
-        sprintf(buff, "%s", "EFGH");
-    }
-    else
-    {
-        sprintf(buff, "%s", "ABCD");
-    }
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 200, 122, (char *)buff, 1);
 
     // Convert drawing buffer into panel memory layout
     FixBuffer(epd_temp, epd_buffer, epd_width, epd_height);

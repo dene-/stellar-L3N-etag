@@ -152,7 +152,6 @@ function getNearColorV2(color, palette) {
 
 }
 
-
 function updatePixel(imageData, index, color) {
   imageData[index] = color[0];
   imageData[index+1] = color[1];
