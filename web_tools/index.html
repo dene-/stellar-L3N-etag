@@ -1,31 +1,27 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="content-type" content="text/html; charset=utf-8" />
     <title>Electronic Shelf Label Bluetooth Controller</title>
     <style>
+      /* Minimal custom tweaks; Tailwind + DaisyUI handle the rest */
       #tool-box > * {
         margin-right: 5px;
       }
-
-      * {
-        padding: 0;
-        margin: 0;
-      }
-
-      button,
-      a {
-        padding: 2px;
-        margin: 2px;
-        display: inline-block;
-      }
-
-      body {
-        padding: 20px;
-        overflow-y: hidden;
+      .eink {
+        color: #000;
+        background: #fff;
       }
     </style>
+    <!-- UI libs: DaisyUI + Tailwind (browser) -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@5"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/rgbquant/src/rgbquant.min.js"></script>
     <script type="application/javascript" src="js/dithering.js"></script>
     <script type="application/javascript" src="js/utils.js"></script>
@@ -330,11 +326,11 @@
           ("0" + today.getMinutes()).slice(-2) +
           ":" +
           ("0" + today.getSeconds()).slice(-2) +
-          " : ";
+          ": ";
 
         const dom = document.getElementById("log");
 
-        dom.innerHTML += time + logTXT + "<br>";
+        dom.innerHTML += `<pre><code>${time + logTXT}</code></pre>`;
         dom.scrollTop = dom.scrollHeight;
       }
 
@@ -425,8 +421,6 @@
           ? document.getElementById("dithSerp").checked
           : false;
 
-        console.log(serp);
-
         // RgbQuant-powered modes use prefixes bw_/bwr_
         const isBwr = mode.startsWith("bwr_");
         const palette = isBwr ? bwrPalette : bwPalette;
@@ -456,8 +450,9 @@
         const paint_color = document.getElementById("paint-color");
         const editor = document.getElementById("edit-font");
         const font = document.getElementById("font");
+
         document.getElementById("dithering").value = "bwr_Atkinson";
-        // Re-apply dithering on UI changes
+
         document
           .getElementById("dithering")
           .addEventListener("change", convert_dithering);
@@ -465,6 +460,7 @@
         if (serpCk) serpCk.addEventListener("change", convert_dithering);
         const thr = document.getElementById("threshold");
         if (thr) thr.addEventListener("change", convert_dithering);
+
         image_mode.value = "paint";
         paint_color.value = "black";
         font.value = "黑体";
@@ -614,207 +610,413 @@
         };
       };
     </script>
-    <h2>
-      Electronic Shelf Label Bluetooth Controller
-      <a style="margin-left: 130px" href="uart_flasher.html"> UART Flasher </a>
-      <a href="ATC_TLSR_PaperBLEcontrol.html">BLE OTA Upgrade</a>
-      <a href="weather.html">Weather Station Tool</a>
-    </h2>
+    <div class="min-h-screen bg-base-100">
+      <div class="max-w-6xl mx-auto p-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between flex-wrap gap-3 mb-6">
+          <h1 class="text-2xl font-bold tracking-tight">
+            Electronic Shelf Label Bluetooth Controller
+          </h1>
+          <nav class="flex gap-2">
+            <a class="btn btn-ghost btn-sm" href="uart_flasher.html"
+              >UART Flasher</a
+            >
+            <a class="btn btn-ghost btn-sm" href="ATC_TLSR_PaperBLEcontrol.html"
+              >BLE OTA Upgrade</a
+            >
+            <a class="btn btn-accent btn-sm" href="weather.html"
+              >Weather Tool</a
+            >
+          </nav>
+        </div>
 
-    <button id="connectbutton" type="button" onclick="preConnect();">
-      Connect
-    </button>
-    <button type="button" onclick="reConnect();">Reconnect</button>
-    <button
-      type="button"
-      onclick="document.getElementById('log').innerHTML = '';"
-    >
-      Clear log
-    </button>
-    <br /><br />
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          <!-- Left column -->
+          <div class="lg:col-span-2 space-y-6">
+            <!-- Connection card -->
+            <div class="card bg-base-200 shadow-sm">
+              <div class="card-body gap-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <button
+                    id="connectbutton"
+                    type="button"
+                    class="btn btn-primary"
+                    onclick="preConnect();"
+                  >
+                    Connect
+                  </button>
+                  <button type="button" class="btn" onclick="reConnect();">
+                    Reconnect
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost"
+                    onclick="document.getElementById('log').innerHTML = '';"
+                  >
+                    Clear log
+                  </button>
+                </div>
+              </div>
+            </div>
 
-    <h3>Commands</h3>
-    <input type="text" id="cmdTXT" value="0055" />
-    <button
-      type="button"
-      onclick="triggerEpdCmd(document.getElementById('cmdTXT').value);"
-    >
-      Send Command
-    </button>
-    <br />
-    <button
-      type="button"
-      onclick="triggerRxTxCmd('e100')"
-      title="Click this button, then upload an image. The image will be permanently displayed on the screen"
-    >
-      Set Image Mode
-    </button>
-    <button
-      type="button"
-      onclick="triggerRxTxCmd('e101')"
-      title="Click this button to switch to Clock Mode"
-    >
-      Set Clock Mode 1
-    </button>
-    <button
-      type="button"
-      onclick="triggerRxTxCmd('e102')"
-      title="Click this button to switch to Clock Mode"
-    >
-      Set Clock Mode 2
-    </button>
-    <button type="button" onclick="clearScreen('00')">
-      Clear Screen (All Black)
-    </button>
-    <button type="button" onclick="clearScreen('ff')">
-      Clear Screen (All White)
-    </button>
-    <button type="button" onclick="triggerEpdCmd('0101')">
-      Refresh Screen (Image Mode, Full Update)
-    </button>
-    <button type="button" onclick="triggerEpdCmd('0100')">
-      Refresh Screen (Image Mode, Partial Update)
-    </button>
-    <br /><br />
+            <!-- Commands card -->
+            <div class="card bg-base-200 shadow-sm">
+              <div class="card-body gap-3">
+                <div class="flex items-end gap-2 flex-wrap">
+                  <div class="form-control">
+                    <label class="label"
+                      ><span class="label-text">Command (hex)</span></label
+                    >
+                    <input
+                      class="input input-bordered w-52"
+                      type="text"
+                      id="cmdTXT"
+                      value="0055"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="triggerEpdCmd(document.getElementById('cmdTXT').value);"
+                  >
+                    Send Command
+                  </button>
+                </div>
 
-    <h3>Upload image to display</h3>
-    <input
-      type="file"
-      id="image_file"
-      onchange="update_image()"
-      accept=".png,.jpg,.bmp,.webp"
-    />
-    Dithering:
-    <select id="dithering" title="Dithering algorithm">
-      <optgroup label="BW">
-        <option value="bw_FloydSteinberg">FloydSteinberg</option>
-        <option value="bw_FalseFloydSteinberg">FalseFloydSteinberg</option>
-        <option value="bw_Stucki">Stucki</option>
-        <option value="bw_Atkinson">Atkinson</option>
-        <option value="bw_Jarvis">Jarvis</option>
-        <option value="bw_Burkes">Burkes</option>
-        <option value="bw_Sierra">Sierra</option>
-        <option value="bw_TwoSierra">TwoSierra</option>
-        <option value="bw_SierraLite">SierraLite</option>
-      </optgroup>
-      <optgroup label="BWR">
-        <option value="bwr_FloydSteinberg">FloydSteinberg</option>
-        <option value="bwr_FalseFloydSteinberg">FalseFloydSteinberg</option>
-        <option value="bwr_Stucki">Stucki</option>
-        <option value="bwr_Atkinson">Atkinson</option>
-        <option value="bwr_Jarvis">Jarvis</option>
-        <option value="bwr_Burkes">Burkes</option>
-        <option value="bwr_Sierra">Sierra</option>
-        <option value="bwr_TwoSierra">TwoSierra</option>
-        <option value="bwr_SierraLite">SierraLite</option>
-      </optgroup>
-    </select>
-    <label style="margin-left: 8px">
-      <input type="checkbox" id="dithSerp" /> Serpentine
-    </label>
-    Threshold:
-    <input type="number" max="255" min="0" value="125" id="threshold" />
-    <button onclick="update_image()">Reload Image</button>
-    <br />
+                <div class="divider my-2"></div>
 
-    <div id="canvas-box">
-      <div id="tool-box">
-        Mode:
-        <select id="canvas-mode">
-          <option value="paint">Brush</option>
-          <option value="font" title="After typing, click: Save Text Box">
-            Text
-          </option>
-        </select>
-        Brush/Text Size:
-        <input
-          type="number"
-          max="13"
-          min="1"
-          step="1"
-          value="3"
-          id="paint-size"
-        />
-        Color:
-        <select id="paint-color">
-          <option value="red">Red</option>
-          <option value="white">White</option>
-          <option value="black">Black</option>
-        </select>
-        <button id="update-text" style="display: none">Save Text Box</button>
-        <button onclick="clear_canvas()">Clear Canvas</button>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    class="btn btn-outline"
+                    type="button"
+                    title="Click this button, then upload an image. The image will be permanently displayed on the screen"
+                    onclick="triggerRxTxCmd('e100')"
+                  >
+                    Set Image Mode
+                  </button>
+                  <button
+                    class="btn btn-outline"
+                    type="button"
+                    title="Click this button to switch to Clock Mode"
+                    onclick="triggerRxTxCmd('e101')"
+                  >
+                    Set Clock Mode 1
+                  </button>
+                  <button
+                    class="btn btn-outline"
+                    type="button"
+                    title="Click this button to switch to Clock Mode"
+                    onclick="triggerRxTxCmd('e102')"
+                  >
+                    Set Clock Mode 2
+                  </button>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    class="btn btn-error"
+                    type="button"
+                    onclick="clearScreen('00')"
+                  >
+                    Clear Screen (All Black)
+                  </button>
+                  <button class="btn" type="button" onclick="clearScreen('ff')">
+                    Clear Screen (All White)
+                  </button>
+                  <button
+                    class="btn btn-success"
+                    type="button"
+                    onclick="triggerEpdCmd('0101')"
+                  >
+                    Refresh (Full Update)
+                  </button>
+                  <button
+                    class="btn btn-success btn-outline"
+                    type="button"
+                    onclick="triggerEpdCmd('0100')"
+                  >
+                    Refresh (Partial)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Upload + Dithering card -->
+            <div class="card bg-base-200 shadow-sm">
+              <div class="card-body gap-4">
+                <h3 class="card-title">Upload image to display</h3>
+                <div class="flex items-end gap-3 flex-wrap">
+                  <div class="form-control">
+                    <label class="label"
+                      ><span class="label-text">Choose image</span></label
+                    >
+                    <input
+                      class="file-input file-input-bordered file-input-sm"
+                      type="file"
+                      id="image_file"
+                      onchange="update_image()"
+                      accept=".png,.jpg,.bmp,.webp"
+                    />
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label"
+                      ><span class="label-text">Dithering</span></label
+                    >
+                    <select
+                      id="dithering"
+                      title="Dithering algorithm"
+                      class="select select-bordered select-sm w-60"
+                    >
+                      <optgroup label="BW">
+                        <option value="bw_FloydSteinberg">
+                          FloydSteinberg
+                        </option>
+                        <option value="bw_FalseFloydSteinberg">
+                          FalseFloydSteinberg
+                        </option>
+                        <option value="bw_Stucki">Stucki</option>
+                        <option value="bw_Atkinson">Atkinson</option>
+                        <option value="bw_Jarvis">Jarvis</option>
+                        <option value="bw_Burkes">Burkes</option>
+                        <option value="bw_Sierra">Sierra</option>
+                        <option value="bw_TwoSierra">TwoSierra</option>
+                        <option value="bw_SierraLite">SierraLite</option>
+                      </optgroup>
+                      <optgroup label="BWR">
+                        <option value="bwr_FloydSteinberg">
+                          FloydSteinberg
+                        </option>
+                        <option value="bwr_FalseFloydSteinberg">
+                          FalseFloydSteinberg
+                        </option>
+                        <option value="bwr_Stucki">Stucki</option>
+                        <option value="bwr_Atkinson">Atkinson</option>
+                        <option value="bwr_Jarvis">Jarvis</option>
+                        <option value="bwr_Burkes">Burkes</option>
+                        <option value="bwr_Sierra">Sierra</option>
+                        <option value="bwr_TwoSierra">TwoSierra</option>
+                        <option value="bwr_SierraLite">SierraLite</option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  <label class="label cursor-pointer gap-2 mt-6">
+                    <input
+                      type="checkbox"
+                      id="dithSerp"
+                      class="checkbox checkbox-sm"
+                    />
+                    <span class="label-text">Serpentine</span>
+                  </label>
+
+                  <div class="form-control">
+                    <label class="label"
+                      ><span class="label-text">Threshold</span></label
+                    >
+                    <input
+                      type="number"
+                      max="255"
+                      min="0"
+                      value="125"
+                      id="threshold"
+                      class="input input-bordered input-sm w-24"
+                    />
+                  </div>
+
+                  <button class="btn btn-sm" onclick="update_image()">
+                    Reload Image
+                  </button>
+                </div>
+
+                <!-- Canvas & tools -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <div
+                      id="tool-box"
+                      class="flex flex-wrap items-center gap-2 mb-3"
+                    >
+                      <div class="form-control">
+                        <label class="label"
+                          ><span class="label-text">Mode</span></label
+                        >
+                        <select
+                          id="canvas-mode"
+                          class="select select-bordered select-sm"
+                        >
+                          <option value="paint">Brush</option>
+                          <option
+                            value="font"
+                            title="After typing, click: Save Text Box"
+                          >
+                            Text
+                          </option>
+                        </select>
+                      </div>
+
+                      <div class="form-control">
+                        <label class="label"
+                          ><span class="label-text"
+                            >Brush/Text Size</span
+                          ></label
+                        >
+                        <input
+                          type="number"
+                          max="13"
+                          min="1"
+                          step="1"
+                          value="3"
+                          id="paint-size"
+                          class="input input-bordered input-sm w-24"
+                        />
+                      </div>
+
+                      <div class="form-control">
+                        <label class="label"
+                          ><span class="label-text">Color</span></label
+                        >
+                        <select
+                          id="paint-color"
+                          class="select select-bordered select-sm"
+                        >
+                          <option value="red">Red</option>
+                          <option value="white">White</option>
+                          <option value="black">Black</option>
+                        </select>
+                      </div>
+
+                      <button
+                        id="update-text"
+                        style="display: none"
+                        class="btn btn-sm"
+                      >
+                        Save Text Box
+                      </button>
+                      <button class="btn btn-sm" onclick="clear_canvas()">
+                        Clear Canvas
+                      </button>
+                    </div>
+
+                    <input
+                      id="edit-font"
+                      class="input input-bordered absolute bg-transparent overflow-auto"
+                      style="max-width: 250px; display: none"
+                    />
+                    <div class="border rounded-lg p-2 inline-block bg-white">
+                      <canvas
+                        id="canvas"
+                        width="250"
+                        height="128"
+                        class="eink border border-base-300 rounded"
+                      ></canvas>
+                    </div>
+                    <div class="mt-3">
+                      <button class="btn btn-primary" onclick="upload_image()">
+                        Upload to Display Now
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Help panel -->
+                  <div class="text-sm opacity-80">
+                    <div class="font-semibold mb-1">Tips</div>
+                    <ul class="list-disc pl-5 space-y-1">
+                      <li>Use BWR dithering for 3‑color displays.</li>
+                      <li>
+                        Brush draws directly on canvas; Text lets you place and
+                        save a text box.
+                      </li>
+                      <li>
+                        After "Set Image Mode", upload to persist the image.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Time card -->
+            <div class="card bg-base-200 shadow-sm">
+              <div class="card-body gap-3">
+                <h3 class="card-title">Set Time</h3>
+                <div class="flex items-center gap-3 flex-wrap">
+                  <button
+                    id="time-setter"
+                    class="btn btn-primary"
+                    onclick="setTime()"
+                  >
+                    Set time to:
+                  </button>
+                  <div class="form-control">
+                    <label class="label"
+                      ><span class="label-text">Offset (hours)</span></label
+                    >
+                    <div class="join">
+                      <span class="join-item btn btn-ghost no-animation"
+                        >+</span
+                      >
+                      <input
+                        type="number"
+                        max="24"
+                        min="0"
+                        id="hour-offset"
+                        value="0"
+                        class="join-item input input-bordered w-20"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Display buffer card -->
+            <div class="card bg-base-200 shadow-sm">
+              <div class="card-body gap-3">
+                <h3 class="card-title">Display Control</h3>
+                <div class="flex items-end gap-3 flex-wrap">
+                  <input
+                    type="file"
+                    class="file-input file-input-bordered file-input-sm"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    onclick="upload_epd_buffer();"
+                  >
+                    Upload image to display buffer
+                  </button>
+                </div>
+                <textarea
+                  id="buffer"
+                  rows="10"
+                  class="textarea textarea-bordered w-full"
+                  placeholder="Paste hex buffer..."
+                ></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right column: Log -->
+          <div class="card bg-base-200 shadow-sm h-full">
+            <div class="card-body gap-3">
+              <div class="flex items-center justify-between">
+                <h3 class="card-title text-base">Log</h3>
+                <button
+                  class="btn btn-sm"
+                  type="button"
+                  onclick="document.getElementById('log').innerHTML = '';"
+                >
+                  Clear
+                </button>
+              </div>
+              <div
+                id="log"
+                class="text-[lime] rounded h-[60vh] overflow-auto mockup-code font-mono text-xs"
+              ></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <input
-        id="edit-font"
-        style="
-          max-width: 250px;
-          position: absolute;
-          border: black solid 1px;
-          background-color: rgba(0, 0, 0, 0);
-          display: none;
-          overflow: auto;
-        "
-      />
-      <canvas
-        id="canvas"
-        width="250"
-        height="128"
-        style="border: black solid 1px"
-      ></canvas>
-      <br />
-      <button onclick="upload_image()" style="font-weight: bold">
-        Upload to Display Now
-      </button>
-      <br />
-    </div>
-
-    <br />
-    <h3>Set Time</h3>
-    <button id="time-setter" onclick="setTime()">Set time to:</button> <br />
-    Offset +<input
-      type="number"
-      max="24"
-      min="0"
-      id="hour-offset"
-      value="0"
-      style="width: 40px"
-    />
-    hours
-
-    <div id="tab_image">
-      <br />
-      <h3>Display Control</h3>
-      <input type="file" />
-      <button type="button" onclick="upload_epd_buffer();">
-        Upload image to display buffer
-      </button>
-      <br />
-      <textarea id="buffer" rows="10" cols="90"></textarea><br />
-      <br />
-    </div>
-
-    <div
-      id="log-box"
-      style="
-        position: absolute;
-        right: 10px;
-        top: 0px;
-        width: 500px;
-        height: 50%;
-      "
-    >
-      Log:
-      <br />
-      <div
-        id="log"
-        style="
-          width: 100%;
-          height: 100%;
-          overflow: scroll;
-          border: solid 1px;
-          padding: 20px;
-        "
-      ></div>
     </div>
   </body>
 </html>

@@ -102,6 +102,8 @@ async function ditheringCanvasByPalette(canvas, palette, type, opts = {}) {
   const w = canvas.width;
   const h = canvas.height;
 
+  const { dithSerp } = opts;
+
   const quantOptions = {
     palette,
     dithKern: type || "Atkinson",
