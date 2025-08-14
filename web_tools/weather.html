@@ -892,10 +892,8 @@
           ctx.drawImage(canvas, 0, 0);
           // Apply fixed bwr_Atkinson palette dithering for device compatibility
           try {
-            ditheringCanvasByPalette(out, bwrPalette, "bwr_Atkinson", {
-              gamma: 2.2,
-              redBias: 0.01,
-              orderedStrength: 12,
+            ditheringCanvasByPalette(out, bwrPalette, "Atkinson", {
+              dithSerp: false,
             });
           } catch (e) {
             console.warn("Dither failed", e);
