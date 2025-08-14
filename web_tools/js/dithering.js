@@ -102,18 +102,9 @@ async function ditheringCanvasByPalette(canvas, palette, type, opts = {}) {
   const w = canvas.width;
   const h = canvas.height;
 
-  // Normalize kernel name (strip any bw_/bwr_ prefixes if passed)
-  let dithKern = type;
-
-  if (typeof dithKern === "string" && dithKern.includes("_")) {
-    dithKern = dithKern.split("_").pop();
-  }
-
-  const { dithSerp } = opts;
-
   const quantOptions = {
     palette,
-    dithKern: dithKern || "Atkinson",
+    dithKern: type || "Atkinson",
     dithSerp,
     minHueCols: 256,
     method: 1,
@@ -127,7 +118,6 @@ async function ditheringCanvasByPalette(canvas, palette, type, opts = {}) {
 
   const output = quant.reduce(canvas);
 
-  // Fast path: if reduce() returned RGBA bytes
   if (
     (output instanceof Uint8Array || output instanceof Uint8ClampedArray) &&
     output.length === w * h * 4
@@ -137,13 +127,11 @@ async function ditheringCanvasByPalette(canvas, palette, type, opts = {}) {
     return;
   }
 
-  // If it's a Blob/ArrayBuffer that is an actual encoded image, decode it
   try {
     const imageDataConv = await bufferIntoImageData(output);
     ctx.putImageData(imageDataConv, 0, 0);
     return;
   } catch (e) {
     console.error("Quant output could not be decoded as an image:", e);
-    // fall through to manual path if needed
   }
 }
