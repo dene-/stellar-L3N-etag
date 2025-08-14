@@ -1,12 +1,17 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BWR e‑ink 250×128</title>
-    <script src="https://cdn.tailwindcss.com"></script>
     <script type="application/javascript" src="js/dithering.js"></script>
     <script type="application/javascript" src="js/utils.js"></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@5"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style>
       .eink {
         color: #000;
@@ -44,145 +49,199 @@
       }
     </style>
   </head>
-  <body class="bg-zinc-100 text-zinc-900">
-    <div id="app" v-scope class="p-4 max-w-xl mx-auto">
-      <div class="ui mb-3 flex items-end gap-2">
-        <div class="grow">
-          <label class="block text-sm mb-1">Location</label>
-          <input
-            v-model.trim="location"
-            placeholder="City or lat,lon"
-            class="w-full border px-3 py-2 rounded-xl"
-            @change="saveLocation"
-            @blur="saveLocation"
-          />
-          <label
-            class="mt-1 inline-flex items-center gap-1 text-[11px] cursor-pointer select-none"
-          >
-            <input type="checkbox" v-model="use24h" @change="saveUse24h" />
-            <span>24h</span>
-          </label>
+  <body class="min-h-screen">
+    <div id="app" v-scope class="p-6 max-w-6xl mx-auto">
+      <!-- App header -->
+      <header class="mb-6 flex flex-col gap-1">
+        <div class="flex items-center gap-3 flex-wrap">
+          <h1 class="text-2xl font-bold tracking-tight">
+            Stellar E‑Ink Weather
+          </h1>
+          <div v-if="bleConnected" class="badge badge-accent">Connected</div>
+          <div v-else class="badge badge-neutral">Disconnected</div>
         </div>
-        <button
-          @click="fetchWeather"
-          class="px-4 py-2 bg-black text-white rounded-xl"
-        >
-          Fetch
-        </button>
-        <button
-          @click="renderToCanvas"
-          class="px-4 py-2 bg-red-600 text-white rounded-xl"
-        >
-          Render
-        </button>
-        <button
-          @click="preConnect"
-          class="px-4 py-2 bg-emerald-600 text-white rounded-xl"
-        >
-          {{ bleConnected ? 'Disconnect' : 'Connect' }}
-        </button>
-        <button
-          @click="reConnect"
-          class="px-4 py-2 bg-amber-600 text-white rounded-xl"
-          :disabled="!bleDevice"
-        >
-          Reconnect
-        </button>
-      </div>
+      </header>
+      <div class="grid grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+        <!-- Left: controls + preview + canvas -->
+        <div class="lg:col-span-2 space-y-4">
+          <!-- Controls card -->
+          <div class="ui card bg-base-200 rounded-xl p-6">
+            <div class="flex flex-col gap-3 flex-wrap">
+              <div class="flex flex-col flex-grow gap-3">
+                <label class="input">
+                  <span class="label"> Location </span>
+                  <input
+                    v-model.trim="location"
+                    placeholder="City or lat, lon"
+                    @change="saveLocation"
+                    @blur="saveLocation"
+                  />
+                </label>
 
-      <!-- Preview card -->
-      <div class="flex justify-center mb-4">
-        <!-- <div class="bg-white border rounded-xl shadow-sm">
-          <div
-            id="capture"
-            class="eink snap w-[250px] h-[128px] flex flex-col justify-between p-3 gap-1"
-          >
-            <span class="text-[11px]">{{ weekday }}, {{ dateStr }}</span>
-            <div class="flex items-center justify-start flex-grow">
-              <div class="font-extrabold flex gap-1">
-                <span class="text-[40px]">{{ timeMain }}</span>
-                <span
-                  v-if="timeSuffix"
-                  class="text-[14px] font-bold align-top self-end"
+                <label class="label">
+                  <input
+                    type="checkbox"
+                    class="checkbox"
+                    v-model="use24h"
+                    @change="saveUse24h"
+                  />
+                  Clock 24h
+                </label>
+              </div>
+
+              <div class="flex gap-2 flex-wrap items-end">
+                <button
+                  @click="fetchWeather"
+                  class="btn btn-primary"
+                  aria-label="Fetch latest weather"
                 >
-                  {{ timeSuffix }}
-                </span>
+                  Fetch
+                </button>
+                <button
+                  @click="renderToCanvas"
+                  class="btn btn-primary"
+                  aria-label="Render to preview"
+                >
+                  Render
+                </button>
+                <button
+                  @click="preConnect"
+                  class="btn btn-primary"
+                  aria-label="Connect / Disconnect"
+                >
+                  {{ bleConnected ? 'Disconnect' : 'Connect' }}
+                </button>
+                <button
+                  @click="reConnect"
+                  :disabled="!bleDevice"
+                  class="btn btn-primary"
+                  aria-label="Reconnect to device"
+                >
+                  Reconnect
+                </button>
               </div>
-            </div>
-            <div
-              class="text-[12px] font-semibold inline-flex items-center gap-1"
-            >
-              <span class="ink-red text-[12px]">●</span>
-              <span>{{ locationLabel }}</span>
-            </div>
-            <span class="text-[12px] font-semibold">
-              {{ roundedTemp }}°C | {{ weatherText }}
-            </span>
-            <span class="text-[11px]">
-              {{ windSpeedDisplay }} {{ windDirDisplay }}
-            </span>
-          </div>
-        </div> -->
-        <div class="bg-white border rounded-xl shadow-sm">
-          <div
-            id="capture"
-            class="eink snap w-[250px] h-[128px] flex flex-row p-2 pr-3 gap-1"
-          >
-            <!-- Icon column -->
-            <div class="w-[48px] flex items-center justify-center">
-              <div v-if="iconSvg" v-html="iconSvg" class="size-[46px]"></div>
-            </div>
-            <!-- Data column -->
-            <div class="flex flex-col justify-between flex-1 py-1">
-              <div class="text-[11px] leading-none truncate max-w-full">
-                {{ weekday }}, {{ dateStr }}
-              </div>
-              <div class="flex items-center justify-start">
-                <div class="font-extrabold tracking-tight leading-none">
-                  <span class="text-[38px]">{{ timeMain }}</span>
-                  <span
-                    v-if="timeSuffix"
-                    class="ml-1 text-[16px] font-bold align-top"
-                    >{{ timeSuffix }}</span
+
+              <div class="flex items-start gap-1">
+                <div class="flex items-center gap-2">
+                  <label class="input">
+                    <span class="label">Dev Temp</span>
+                    <input
+                      v-model.trim="tempCmd"
+                      @change="saveTempCmd"
+                      placeholder="hex"
+                    />
+                  </label>
+                  <button
+                    @click="queryDeviceTemp"
+                    class="btn btn-primary"
+                    aria-label="Read device temperature"
+                  >
+                    Read
+                  </button>
+                </div>
+                <div class="leading-none">
+                  🏠<span v-if="deviceTempDisplay"
+                    >{{ deviceTempDisplay }}</span
                   >
                 </div>
               </div>
-              <div
-                class="text-[12px] font-semibold flex items-center gap-1 leading-none"
-              >
-                <div class="truncate flex-grow">{{ locationLabel }}</div>
+            </div>
+          </div>
+
+          <div class="flex gap-5">
+            <div class="flex flex-col items-start">
+              <div class="text-sm mb-1 text-center">Preview card:</div>
+              <!-- Preview card -->
+              <div class="bg-white border rounded-xl shadow-sm overflow-hidden">
+                <div
+                  id="capture"
+                  class="eink snap w-[250px] h-[128px] flex flex-row p-2 gap-1"
+                >
+                  <!-- Icon column -->
+                  <div class="w-[48px] flex items-center justify-center">
+                    <div
+                      v-if="iconSvg"
+                      v-html="iconSvg"
+                      class="size-[46px]"
+                    ></div>
+                  </div>
+                  <!-- Data column -->
+                  <div class="flex flex-col justify-between flex-1 py-1">
+                    <div class="text-[11px] leading-none truncate max-w-full">
+                      {{ weekday }}, {{ dateStr }}
+                    </div>
+                    <div class="flex items-center justify-start">
+                      <div class="font-extrabold tracking-tight leading-none">
+                        <span class="text-[38px]">{{ timeMain }}</span>
+                        <span
+                          v-if="timeSuffix"
+                          class="ml-1 text-[16px] font-bold align-top"
+                          >{{ timeSuffix }}</span
+                        >
+                      </div>
+                    </div>
+                    <div
+                      class="text-[12px] font-semibold flex items-center gap-1 leading-none"
+                    >
+                      <div class="truncate flex-grow">{{ locationLabel }}</div>
+                    </div>
+                    <div
+                      class="flex gap-2 text-[12px] font-semibold leading-none truncate"
+                    >
+                      {{ roundedTemp }}°C
+                      <span v-if="deviceTempDisplay">
+                        ⌂ {{ deviceTempDisplay }}
+                      </span>
+                      {{ weatherText }}
+                    </div>
+                    <div class="text-[11px] leading-none">
+                      {{ windSpeedDisplay }} {{ windDirDisplay }}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="text-[12px] font-semibold leading-none truncate">
-                {{ roundedTemp }}°C | {{ weatherText }}
+            </div>
+
+            <!-- Canvas -->
+            <div class="flex flex-col items-start">
+              <div class="text-sm mb-1 text-center">
+                Rendered canvas (1×, 250×128):
               </div>
-              <div class="text-[11px] leading-none">
-                {{ windSpeedDisplay }} {{ windDirDisplay }}
+              <div class="flex justify-center">
+                <canvas
+                  id="outCanvas"
+                  width="250"
+                  height="128"
+                  class="border border-dashed rounded-md bg-white"
+                ></canvas>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="text-sm mb-1 text-center">Rendered canvas (1×, 250×128):</div>
-      <div class="flex justify-center">
-        <canvas
-          id="outCanvas"
-          width="250"
-          height="128"
-          class="border border-dashed rounded-md bg-white"
-        ></canvas>
-      </div>
-      <div class="mt-4">
-        <div class="text-xs font-semibold mb-1">BLE Log</div>
-        <div
-          id="bleLog"
-          class="text-[11px] h-36 overflow-y-auto border rounded bg-white p-2 font-mono leading-none"
-        ></div>
+        <!-- Right: BLE log -->
+        <div class="rounded-xl bg-base-200 p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-semibold tracking-wide">BLE Log</div>
+            <button
+              @click="clearBleLog"
+              class="btn btn-primary btn-sm"
+              aria-label="Clear BLE log"
+            >
+              Clear
+            </button>
+          </div>
+          <div
+            id="bleLog"
+            class="text-[11px] bg-black text-[lime] min-h-64 max-h-[70vh] overflow-y-auto rounded p-2 font-mono leading-snug"
+          ></div>
+        </div>
       </div>
     </div>
 
     <script src="https://unpkg.com/petite-vue@0.4.1/dist/petite-vue.iife.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js"></script>
+
     <script>
       // ==== BLE logic (adapted from index.html) ====
       let bleDevice;
@@ -194,17 +253,7 @@
       let reconnectTrys = 0;
       let autoConnectAttempts = 0;
 
-      function addBleLog(msg) {
-        const box = document.getElementById("bleLog");
-        const ts = new Date();
-        const t = ts.toLocaleTimeString();
-        if (box) {
-          box.innerHTML += `[${t}] ${msg.replace(/</g, "&lt;")}<br>`;
-          box.scrollTop = box.scrollHeight;
-        } else {
-          console.log("[BLE]", msg);
-        }
-      }
+      // addBleLog moved into App for reactivity
 
       function resetVariables() {
         gattServer = null;
@@ -214,187 +263,7 @@
         rxtxService = null;
       }
 
-      async function handleError(error) {
-        addBleLog("Error: " + (error?.message || error));
-        resetVariables();
-        if (!bleDevice) return;
-        if (reconnectTrys <= 5) {
-          reconnectTrys++;
-          await connect();
-        } else reconnectTrys = 0;
-      }
-
-      async function sendCommand(cmd) {
-        if (epdCharacteristic) {
-          await epdCharacteristic.writeValueWithResponse(cmd);
-        }
-      }
-
-      async function rxTxSendCommand(cmd) {
-        if (rxtxCharacteristic) {
-          await rxtxCharacteristic.writeValueWithResponse(cmd);
-        }
-      }
-
-      async function triggerRxTxCmd(cmd) {
-        addBleLog(`Tx RxTx: ${cmd}`);
-        await rxTxSendCommand(hexToBytes(cmd));
-      }
-
-      async function sendBufferData(value, type) {
-        let code = "ff";
-        if (type === "bwr") code = "00";
-        const step = 480;
-        for (let i = 0; i < value.length; i += step) {
-          await sendCommand(
-            hexToBytes(
-              "03" + code + intToHex(i / 2, 2) + value.substring(i, i + step)
-            )
-          );
-        }
-      }
-
-      async function upload_image(canvasId = "outCanvas") {
-        if (!epdCharacteristic) return; // not connected
-        try {
-          const canvas = document.getElementById(canvasId);
-          addBleLog("Uploading image ...");
-          await sendCommand(hexToBytes("0000"));
-          await sendCommand(hexToBytes("020000"));
-          await sendBufferData(bytesToHex(canvas2bytes(canvas)), "bw");
-          await sendBufferData(bytesToHex(canvas2bytes(canvas, "bwr")), "bwr");
-          await sendCommand(hexToBytes("0101"));
-          addBleLog("Upload done");
-        } catch (e) {
-          addBleLog("Upload failed: " + e.message);
-        }
-      }
-
-      function disconnect() {
-        resetVariables();
-        App.bleConnected = false;
-        addBleLog("Disconnected");
-      }
-
-      async function preConnect() {
-        if (gattServer && gattServer.connected) {
-          if (bleDevice && bleDevice.gatt.connected)
-            bleDevice.gatt.disconnect();
-          return;
-        }
-        reconnectTrys = 0;
-        bleDevice = await navigator.bluetooth.requestDevice({
-          optionalServices: [
-            "0000221f-0000-1000-8000-00805f9b34fb",
-            "00001f10-0000-1000-8000-00805f9b34fb",
-            "13187b10-eba9-a3ba-044e-83d3217d9a38",
-          ],
-          acceptAllDevices: true,
-        });
-        bleDevice.addEventListener("gattserverdisconnected", disconnect);
-        try {
-          await connect();
-        } catch (e) {
-          await handleError(e);
-        }
-      }
-
-      async function connectRXTX() {
-        rxtxService = await gattServer.getPrimaryService(
-          "00001f10-0000-1000-8000-00805f9b34fb"
-        );
-        rxtxCharacteristic = await rxtxService.getCharacteristic(
-          "00001f1f-0000-1000-8000-00805f9b34fb"
-        );
-        addBleLog("RXTX characteristic ready");
-      }
-
-      async function reConnect() {
-        if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
-        resetVariables();
-        setTimeout(async () => {
-          if (bleDevice) await connect();
-        }, 300);
-      }
-
-      async function connect() {
-        if (!epdCharacteristic) {
-          gattServer = await bleDevice.gatt.connect();
-          addBleLog("GATT connected: " + (bleDevice.name || "Unnamed"));
-          epdService = await gattServer.getPrimaryService(
-            "13187b10-eba9-a3ba-044e-83d3217d9a38"
-          );
-          addBleLog("EPD service found");
-          epdCharacteristic = await epdService.getCharacteristic(
-            "4b646063-6264-f3a7-8941-e65356ea82fe"
-          );
-          await epdCharacteristic.startNotifications();
-          /* epdCharacteristic.addEventListener(
-            "characteristicvaluechanged",
-            (event) => {
-              addBleLog("Notify len=" + event.target.value.byteLength);
-            }
-          ); */
-          await connectRXTX();
-          App.bleConnected = true;
-          // Put image more
-          await triggerRxTxCmd("e100");
-          // Ensure latest canvas content is rendered before uploading
-          await App.renderToCanvas();
-          await upload_image();
-          try {
-            localStorage.setItem("lastBleName", bleDevice.name || "");
-          } catch (e) {}
-        }
-      }
-
-      // Try to auto-connect to a previously paired THX* device (Chrome supports navigator.bluetooth.getDevices)
-      async function attemptAutoConnect() {
-        if (!("bluetooth" in navigator)) {
-          addBleLog("Web Bluetooth not supported");
-          return;
-        }
-        if (!navigator.bluetooth.getDevices) {
-          addBleLog(
-            "getDevices() unsupported (requires secure context + recent Chromium). Fallback to stored last device."
-          );
-          try {
-            const last = localStorage.getItem("lastBleName");
-            if (last) {
-              addBleLog(
-                "Last connected device: " +
-                  last +
-                  ". Click Connect to pair again."
-              );
-            } else {
-              addBleLog("Use Connect button to select your THX device.");
-            }
-          } catch (e) {}
-          return;
-        }
-        try {
-          autoConnectAttempts++;
-          addBleLog("Auto-connect attempt #" + autoConnectAttempts);
-          const devices = await navigator.bluetooth.getDevices();
-          addBleLog("Granted devices: " + devices.length);
-          devices.forEach((d) => addBleLog(" - " + (d.name || "Unnamed")));
-          const candidate = devices.find(
-            (d) => d.name && d.name.startsWith("THX")
-          );
-          if (candidate) {
-            addBleLog("Found THX device: " + candidate.name + " connecting...");
-            bleDevice = candidate;
-            bleDevice.addEventListener("gattserverdisconnected", disconnect);
-            await connect();
-          } else if (autoConnectAttempts < 3 && !App.bleConnected) {
-            setTimeout(attemptAutoConnect, 1500);
-          } else {
-            addBleLog("No THX* device among granted devices");
-          }
-        } catch (e) {
-          addBleLog("Auto-connect failed: " + e.message);
-        }
-      }
+      // Global BLE helper functions removed: logic moved into App methods for reactivity
 
       function describeWMO(code) {
         const map = new Map([
@@ -454,6 +323,32 @@
         return dirs[Math.round(deg / 22.5) % 16];
       }
 
+      function parseTemperatureFromBytes(bytes) {
+        if (!bytes || bytes.length === 0) return null;
+        // Try strategies: ASCII digits, signed int16, single signed int8
+        // 1. ASCII detection
+        const ascii = Array.from(bytes).every((b) => b >= 32 && b <= 126);
+        if (ascii) {
+          const txt = new TextDecoder().decode(bytes).trim();
+          const m = txt.match(/(-?\d+(?:\.\d+)?)/);
+          if (m) return parseFloat(m[1]);
+        }
+        // 2. If 2 bytes -> int16 little endian maybe times 100 or 10
+        if (bytes.length === 2) {
+          const view = new DataView(bytes.buffer);
+          let v = view.getInt16(0, true);
+          // Firmware sends temp * 10 (signed). Convert to °C.
+          return v / 10;
+        }
+        // 3. Single byte signed
+        if (bytes.length === 1) {
+          let b = bytes[0];
+          if (b > 127) b = b - 256;
+          return b;
+        }
+        return null;
+      }
+
       const App = {
         location: (function () {
           try {
@@ -479,6 +374,14 @@
         })(),
         windSpeed: null,
         windDir: null,
+        deviceTemp: null,
+        tempCmd: (function () {
+          try {
+            return localStorage.getItem("tempCmd") || "e2aa";
+          } catch (e) {
+            return "e2aa";
+          }
+        })(),
         bleConnected: false,
         get bleDevice() {
           return bleDevice;
@@ -588,7 +491,10 @@
           if (this.windDir == null) return "";
           return dirToCardinal(this.windDir);
         },
-
+        get deviceTempDisplay() {
+          if (this.deviceTemp == null) return "";
+          return Math.round(this.deviceTemp) + "°C";
+        },
         async fetchWeather() {
           try {
             let lat = 41.3874;
@@ -687,7 +593,7 @@
             }
 
             await this.renderToCanvas();
-            await upload_image();
+            if (this.bleConnected) await this.uploadImage();
           } catch (e) {
             this.code = null;
             this.temp = null;
@@ -705,7 +611,266 @@
           // Re-render after changing time format
           this.renderToCanvas();
         },
+        saveTempCmd() {
+          try {
+            localStorage.setItem("tempCmd", this.tempCmd);
+          } catch (e) {}
+        },
+        async queryDeviceTemp() {
+          if (!this.bleConnected || !this.tempCmd) return;
 
+          const cmd = this.tempCmd.replace(/\s+/g, "").toLowerCase();
+
+          if (!/^([0-9a-f]{2})+$/.test(cmd)) {
+            this.addBleLog("Temp cmd invalid hex");
+            return;
+          }
+          await this.triggerRxTxCmd(cmd);
+        },
+        // Injected BLE methods
+        addBleLog(msg) {
+          const box = document.getElementById("bleLog");
+          const ts = new Date();
+          const t = ts.toLocaleTimeString();
+          if (box) {
+            box.innerHTML += `[${t}] ${msg.replace(/</g, "&lt;")}<br>`;
+            box.scrollTop = box.scrollHeight;
+          } else console.log("[BLE]", msg);
+        },
+        clearBleLog() {
+          const box = document.getElementById("bleLog");
+          if (box) box.innerHTML = "";
+        },
+        async sendCommand(cmd) {
+          if (epdCharacteristic)
+            await epdCharacteristic.writeValueWithResponse(cmd);
+        },
+        async rxTxSendCommand(cmd) {
+          if (rxtxCharacteristic)
+            await rxtxCharacteristic.writeValueWithResponse(cmd);
+        },
+        async triggerRxTxCmd(cmd) {
+          this.addBleLog(`Tx RxTx: ${cmd}`);
+          await this.rxTxSendCommand(hexToBytes(cmd));
+        },
+        async sendBufferData(value, type) {
+          let code = "ff";
+          if (type === "bwr") code = "00";
+          const step = 480;
+          for (let i = 0; i < value.length; i += step) {
+            await this.sendCommand(
+              hexToBytes(
+                "03" + code + intToHex(i / 2, 2) + value.substring(i, i + step)
+              )
+            );
+          }
+        },
+        async uploadImage(canvasId = "outCanvas") {
+          if (!epdCharacteristic) return;
+          try {
+            const canvas = document.getElementById(canvasId);
+            this.addBleLog("Uploading image ...");
+            await this.sendCommand(hexToBytes("0000"));
+            await this.sendCommand(hexToBytes("020000"));
+            await this.sendBufferData(bytesToHex(canvas2bytes(canvas)), "bw");
+            await this.sendBufferData(
+              bytesToHex(canvas2bytes(canvas, "bwr")),
+              "bwr"
+            );
+            await this.sendCommand(hexToBytes("0101"));
+            this.addBleLog("Upload done");
+          } catch (e) {
+            this.addBleLog("Upload failed: " + e.message);
+          }
+        },
+        async preConnect() {
+          if (gattServer && gattServer.connected) {
+            if (bleDevice && bleDevice.gatt.connected)
+              bleDevice.gatt.disconnect();
+            return;
+          }
+          reconnectTrys = 0;
+          bleDevice = await navigator.bluetooth.requestDevice({
+            optionalServices: [
+              "0000221f-0000-1000-8000-00805f9b34fb",
+              "00001f10-0000-1000-8000-00805f9b34fb",
+              "13187b10-eba9-a3ba-044e-83d3217d9a38",
+            ],
+            acceptAllDevices: true,
+          });
+          bleDevice.addEventListener("gattserverdisconnected", () =>
+            this.disconnect()
+          );
+          try {
+            await this.connect();
+          } catch (e) {
+            await this.handleError(e);
+          }
+        },
+        async connectRXTX() {
+          try {
+            this.addBleLog("Getting RxTx primary service 1f10...");
+            rxtxService = await gattServer.getPrimaryService(
+              "00001f10-0000-1000-8000-00805f9b34fb"
+            );
+            this.addBleLog("Service 1f10 ok. Getting characteristic 1f1f...");
+            rxtxCharacteristic = await rxtxService.getCharacteristic(
+              "00001f1f-0000-1000-8000-00805f9b34fb"
+            );
+            this.addBleLog(
+              "Characteristic 1f1f obtained (props: " +
+                Object.keys(rxtxCharacteristic.properties)
+                  .filter((k) => rxtxCharacteristic.properties[k])
+                  .join(",") +
+                ")"
+            );
+            this.addBleLog("Starting notifications on 1f1f...");
+            await rxtxCharacteristic.startNotifications();
+            this.addBleLog("startNotifications() resolved");
+            rxtxCharacteristic.addEventListener(
+              "characteristicvaluechanged",
+              this.handleRxtxNotification
+            );
+            this.addBleLog("Listener attached. RXTX notifications on");
+          } catch (e) {
+            this.addBleLog("RXTX notify setup fail: " + e.message);
+            console.error(e);
+          }
+        },
+        async connect() {
+          if (!epdCharacteristic) {
+            try {
+              this.addBleLog("Connecting GATT ...");
+              gattServer = await bleDevice.gatt.connect();
+              this.addBleLog(
+                "GATT connected: " + (bleDevice.name || "Unnamed")
+              );
+              this.addBleLog("Getting EPD primary service ...");
+              epdService = await gattServer.getPrimaryService(
+                "13187b10-eba9-a3ba-044e-83d3217d9a38"
+              );
+              this.addBleLog("EPD service found. Getting characteristic ...");
+              epdCharacteristic = await epdService.getCharacteristic(
+                "4b646063-6264-f3a7-8941-e65356ea82fe"
+              );
+              this.addBleLog(
+                "EPD characteristic obtained. startNotifications..."
+              );
+              await epdCharacteristic.startNotifications();
+              this.addBleLog(
+                "EPD notifications (if any) started. Setting up RxTx..."
+              );
+              await this.connectRXTX();
+              this.addBleLog("RxTx setup done. Marking connected.");
+              this.bleConnected = true;
+              await this.triggerRxTxCmd("e100");
+              await this.queryDeviceTemp();
+              await new Promise((res) => setTimeout(res, 2000));
+              await this.renderToCanvas();
+              await this.uploadImage();
+              try {
+                localStorage.setItem("lastBleName", bleDevice.name || "");
+              } catch (e) {}
+            } catch (e) {
+              this.addBleLog("Connect sequence failed: " + e.message);
+              console.error(e);
+              throw e;
+            }
+          }
+        },
+        disconnect() {
+          resetVariables();
+          this.bleConnected = false;
+          this.addBleLog("Disconnected");
+        },
+        async reConnect() {
+          if (bleDevice && bleDevice.gatt.connected)
+            bleDevice.gatt.disconnect();
+          resetVariables();
+          setTimeout(async () => {
+            if (bleDevice) await this.connect();
+          }, 300);
+        },
+        async attemptAutoConnect() {
+          if (!("bluetooth" in navigator)) {
+            this.addBleLog("Web Bluetooth not supported");
+            return;
+          }
+          if (!navigator.bluetooth.getDevices) {
+            this.addBleLog(
+              "getDevices() unsupported (requires secure context + recent Chromium). Fallback to stored last device."
+            );
+            try {
+              const last = localStorage.getItem("lastBleName");
+              if (last) {
+                this.addBleLog(
+                  "Last connected device: " +
+                    last +
+                    ". Click Connect to pair again."
+                );
+              } else {
+                this.addBleLog("Use Connect button to select your THX device.");
+              }
+            } catch (e) {}
+            return;
+          }
+          try {
+            autoConnectAttempts++;
+            this.addBleLog("Auto-connect attempt #" + autoConnectAttempts);
+            const devices = await navigator.bluetooth.getDevices();
+            this.addBleLog("Granted devices: " + devices.length);
+            devices.forEach((d) =>
+              this.addBleLog(" - " + (d.name || "Unnamed"))
+            );
+            const candidate = devices.find(
+              (d) => d.name && d.name.startsWith("THX")
+            );
+            if (candidate) {
+              this.addBleLog(
+                "Found THX device: " + candidate.name + " connecting..."
+              );
+              bleDevice = candidate;
+              bleDevice.addEventListener("gattserverdisconnected", () =>
+                this.disconnect()
+              );
+              await this.connect();
+            } else if (autoConnectAttempts < 3 && !this.bleConnected) {
+              setTimeout(() => this.attemptAutoConnect(), 1500);
+            } else {
+              this.addBleLog("No THX* device among granted devices");
+            }
+          } catch (e) {
+            this.addBleLog("Auto-connect failed: " + e.message);
+          }
+        },
+        async handleError(error) {
+          this.addBleLog("Error: " + (error?.message || error));
+          resetVariables();
+          if (!bleDevice) return;
+          if (reconnectTrys <= 5) {
+            reconnectTrys++;
+            await this.connect();
+          } else reconnectTrys = 0;
+        },
+        handleRxtxNotification(event) {
+          try {
+            const dv = event.target.value;
+            const len = dv.byteLength;
+            const arr = new Uint8Array(dv.buffer.slice(0, len));
+            const hex = Array.from(arr)
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join("");
+
+            this.addBleLog("Rx RxTx len=" + len + " hex=" + hex);
+
+            const t = parseTemperatureFromBytes(arr);
+            if (t != null && t > -60 && t < 120) {
+              this.deviceTemp = t;
+            }
+          } catch (e) {
+            console.error("handleRxtxNotification error", e);
+          }
+        },
         async renderToCanvas() {
           const captureNode = document.getElementById("capture");
           // Wait for reactive DOM update (time change) to flush before capture
@@ -726,12 +891,15 @@
           ctx.drawImage(canvas, 0, 0);
           // Apply fixed bwr_Atkinson palette dithering for device compatibility
           try {
-            ditheringCanvasByPalette(out, bwrPalette, "bwr_Atkinson");
+            ditheringCanvasByPalette(out, bwrPalette, "bwr_blue8", {
+              gamma: 2.2,
+              redBias: 0.01,
+              orderedStrength: 12,
+            });
           } catch (e) {
             console.warn("Dither failed", e);
           }
         },
-
         async mounted() {
           // Initial immediate weather fetch & first render
           try {
@@ -748,7 +916,7 @@
           this.saveLocation();
 
           // Attempt auto-connect to previously paired THX* device
-          attemptAutoConnect();
+          this.attemptAutoConnect();
 
           this._tickRunning = false;
           const self = this;
@@ -767,7 +935,11 @@
               // Always render first so UI updates before device upload
               await self.renderToCanvas();
               if (self.bleConnected) {
-                await upload_image();
+                await self.uploadImage();
+                // query device temp after upload
+                try {
+                  await self.queryDeviceTemp();
+                } catch (e) {}
               }
 
               if (now.getMinutes() % 5 === 0) {
@@ -775,7 +947,10 @@
                 // Re-render after new data
                 await self.renderToCanvas();
                 if (self.bleConnected) {
-                  await upload_image();
+                  await self.uploadImage();
+                  try {
+                    await self.queryDeviceTemp();
+                  } catch (e) {}
                 }
               }
             } catch (err) {
@@ -791,12 +966,7 @@
           // Kick off first aligned tick
           minuteTick();
         },
-        // expose BLE actions
-        preConnect,
-        reConnect,
-        attemptAutoConnect,
       };
-
       PetiteVue.createApp(App).mount();
       App.mounted();
     </script>
