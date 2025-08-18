@@ -27,18 +27,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Prepare artifact
+      - name: Install dependencies
         run: |
-          # Optional: bypass Jekyll
-          touch web_tools/.nojekyll
+          corepack enable
+          yarn --version
+          yarn --cwd web_tools install --frozen-lockfile
+
+      - name: Build web_tools (SvelteKit + adapter-static)
+        env:
+          # Set base path for GitHub Pages project site (e.g. /owner/repo). If deploying to a user/org root (user.github.io), override to ''.
+          BASE_PATH: /${{ github.event.repository.name }}
+        run: |
+          yarn --cwd web_tools build
+          # Optional: bypass Jekyll in the output dir
+          touch web_tools/build/.nojekyll
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./web_tools
+          path: ./web_tools/build
 
       - name: Deploy to GitHub Pages
         id: deployment

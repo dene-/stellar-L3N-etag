@@ -5,7 +5,7 @@
 
 <button class="btn btn-primary" on:click={() => bleConnectionStore.preConnect()}>Connect</button>
 <button class="btn btn-primary" on:click={() => bleConnectionStore.sendRxTxCommand('e2aa')}>
-	Get temperature
+	Get temperature xD
 </button>
 <div class="mockup-code w-full text-lime-400 text-xs">
 	{#each logStore.logs as log}
