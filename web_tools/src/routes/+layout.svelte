@@ -9,6 +9,7 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<title>Stellar Pro 213R-N BLE Tools</title>
 </svelte:head>
 
 <Navbar />
