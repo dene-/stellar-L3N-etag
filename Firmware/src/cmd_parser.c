@@ -42,34 +42,6 @@ void cmd_parser(void *p)
 	{
 		epd_display_char(req->dat[1]);
 	}
-	else if (inData == 0xB0)
-	{
-		settings.show_batt_enabled = false; // Disable battery on LCD
-	}
-	else if (inData == 0xA0)
-	{
-		settings.blinking_smiley = false;
-		settings.comfort_smiley = false;
-	}
-	else if (inData == 0xA1)
-	{
-		settings.blinking_smiley = false;
-		settings.comfort_smiley = false;
-	}
-	else if (inData == 0xA2)
-	{
-		settings.blinking_smiley = false;
-		settings.comfort_smiley = false;
-	}
-	else if (inData == 0xA3)
-	{
-		settings.blinking_smiley = false;
-		settings.comfort_smiley = true; // Comfort Indicator
-	}
-	else if (inData == 0xAB)
-	{
-		settings.blinking_smiley = true; // Smiley blinking
-	}
 	else if (inData == 0xFE)
 	{
 		settings.advertising_interval = req->dat[1]; // Set advertising interval with second byte, value*10second / 0=main_delay

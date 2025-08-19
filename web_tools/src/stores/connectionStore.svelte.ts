@@ -15,10 +15,6 @@ function bytesToHex(data: ArrayBuffer | ArrayLike<number> | ArrayBufferLike): st
   }, "");
 }
 
-function intToHex(intIn: number, bytes: number = 4): string {
-  return intIn.toString(16).padStart(bytes * 2, "0");
-}
-
 class BleConnectionStore {
   private bleDevice: BluetoothDevice | null = $state(null);
   private gattServer: BluetoothRemoteGATTServer | null = $state(null);

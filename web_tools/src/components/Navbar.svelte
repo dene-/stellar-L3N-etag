@@ -14,7 +14,7 @@
 	<input id="my-drawer-3" type="checkbox" class="drawer-toggle" />
 	<div class="drawer-content flex flex-col bg-base-300">
 		<!-- Navbar -->
-		<div class="navbar w-full container items-center mx-auto">
+		<div class="navbar w-full container items-center mx-auto p-3">
 			<div class="flex-none lg:hidden">
 				<label for="my-drawer-3" aria-label="open sidebar" class="btn btn-square btn-ghost">
 					<svg
@@ -45,13 +45,13 @@
 				{#if bleConnectionStore.connected}
 					<span>Connected</span>
 				{:else if bleConnectionStore.preconnected}
-					<span>Connecting...</span>
+					<span><span class="loading loading-spinner loading-xs"></span> Connecting...</span>
 				{:else}
 					<span>Disconnected</span>
 				{/if}
 			</div>
 			<div class="hidden flex-none lg:block">
-				<ul class="menu menu-horizontal">
+				<ul class="menu menu-horizontal p-0">
 					<!-- Navbar menu content here -->
 					{@render navbarLinks()}
 				</ul>
