@@ -79,7 +79,7 @@ void cmd_parser(void *p)
 		set_EPD_scene(req->dat[1]);
 	}
 	else if (inData == 0xE2)
-	{ // force set an EPD scene
+	{
 		// If second byte is 0xAA treat as a temperature query over RxTx
 		if (req->dat[1] == 0xAA)
 		{

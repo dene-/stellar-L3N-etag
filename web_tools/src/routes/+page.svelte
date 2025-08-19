@@ -31,19 +31,21 @@
 
 <div class="flex flex-col lg:flex-row gap-3">
 	<div class="flex-grow flex flex-col gap-3">
-		<div class="connection bg-base-300 rounded-lg p-5 w-full prose max-w-none">
+		<div class="bg-base-300 rounded-lg p-3 prose max-w-none">
 			<h3>Connection</h3>
-			<button class="btn btn-primary" on:click={() => bleConnectionStore.preConnect()}>
-				Connect
-			</button>
-			<button class="btn btn-secondary" on:click={() => bleConnectionStore.disconnect()}>
-				Disconnect
-			</button>
+			<div class="flex gap-3">
+				<button class="btn btn-primary" on:click={() => bleConnectionStore.preConnect()}>
+					Connect
+				</button>
+				<button class="btn btn-secondary" on:click={() => bleConnectionStore.disconnect()}>
+					Disconnect
+				</button>
+			</div>
 		</div>
 
 		<div class="bg-base-300 rounded-lg p-3 prose max-w-none">
 			<h3>Temperature & time</h3>
-			<div class="flex flex-wrap gap-2">
+			<div class="flex gap-3">
 				<button class="btn" on:click={setTimeNow}>Set time now</button>
 				<button class="btn btn-primary" on:click={() => bleConnectionStore.sendRxTxCommand('e2aa')}>
 					Get temperature
@@ -53,26 +55,36 @@
 
 		<div class="card bg-base-300 rounded-lg p-5 prose max-w-none">
 			<h3>EPD control</h3>
-			<div class="flex flex-wrap items-end gap-2">
-				<button class="btn btn-sm" on:click={() => bleConnectionStore.sendRxTxCommand('e200')}>
+			<div class="flex items-start flex-col">
+				<button class="btn" on:click={() => bleConnectionStore.sendRxTxCommand('e200')}>
 					Flush (partial)
 				</button>
-				<div class="form-control">
-					<span class="label-text">Scene</span>
+				<div class="form-control flex flex-col">
+					<h4>Scene</h4>
 					<div class="join">
 						<button
-							class="btn btn-sm join-item"
-							on:click={() => bleConnectionStore.sendRxTxCommand('e1' + hb(1))}>1: Default</button
+							class="btn join-item"
+							on:click={() => bleConnectionStore.sendRxTxCommand('e1' + hb(0))}
 						>
+							0: Image mode (no scene)
+						</button>
 						<button
-							class="btn btn-sm join-item"
-							on:click={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}>2: Time+Date</button
+							class="btn join-item"
+							on:click={() => bleConnectionStore.sendRxTxCommand('e1' + hb(1))}
 						>
+							1: Default
+						</button>
+						<button
+							class="btn join-item"
+							on:click={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}
+						>
+							2: Time + Date
+						</button>
 					</div>
 				</div>
 
-				<div class="form-control p-5">
-					<span class="label-text">Fill byte (hex)</span>
+				<div class="flex flex-col">
+					<h4>Fill byte (hex)</h4>
 					<div class="join">
 						<input class="input input-sm input-bordered join-item w-24" bind:value={charByteHex} />
 						<button
@@ -86,7 +98,9 @@
 			</div>
 		</div>
 	</div>
-	<div class="mockup-code w-full lg:w-1/3 text-lime-400 text-xs shrink-0 min-h-90">
+	<div
+		class="rounded-lg bg-black p-3 w-full lg:w-1/3 max-h-[70vh] flex flex-col-reverse overflow-auto text-lime-400 text-xs shrink-0 min-h-90"
+	>
 		{#each logStore.logs as log}
 			<pre><code>{log}</code></pre>
 		{/each}

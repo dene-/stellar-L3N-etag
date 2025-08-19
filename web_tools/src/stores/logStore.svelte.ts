@@ -2,7 +2,7 @@ class LogStore {
   logs: string[] = $state([]);
 
   addLog(message: string) {
-    this.logs.push(`[${new Date().toLocaleTimeString()}] ${message}`);
+    this.logs.unshift(`[${new Date().toLocaleTimeString()}] ${message}`);
   }
 
   clearLogs() {
