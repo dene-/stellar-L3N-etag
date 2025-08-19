@@ -345,45 +345,6 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     EPD_Display(epd_buffer, epd_buffer_red, resolution_w * resolution_h / 8, full_or_partial);
 }
 
-// Simple demo scene to exercise partial refresh: moves a small bar based on the minute value
-_attribute_ram_code_ void epd_display_partial_demo(struct date_time _time, uint16_t battery_mv, int16_t temperature, uint8_t full_or_partial)
-{
-    // Clear buffers
-    epd_clear();
-
-    // Use default panel dimensions
-    obdCreateVirtualDisplay(&obd, epd_width, epd_height, epd_temp);
-    obdFill(&obd, 0, 0); // white background
-
-    char buff[48];
-    // Header
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 4, 18, (char *)"Partial Demo", 1);
-
-    // Draw a progress bar that advances with minutes (0..9 wraps), to observe partial updates
-    uint8_t step = (uint8_t)(_time.tm_min % 10);
-    uint8_t bar_w = 20;
-    uint8_t gap = 5;
-    uint8_t x0 = 10 + step * (bar_w + gap);
-    // Track area outline (static)
-    obdRectangle(&obd, 8, 40, 241, 70, 1, 0);
-    // Moving filled bar
-    obdRectangle(&obd, x0, 44, x0 + bar_w, 66, 1, 1);
-
-    // Show current time (HH:MM) small in corner to confirm changes
-    sprintf(buff, "%02d:%02d", _time.tm_hour, _time.tm_min);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 200, 18, (char *)buff, 1);
-
-    // Convert to panel buffer (black layer)
-    FixBuffer(epd_temp, epd_buffer, epd_width, epd_height);
-
-    // Red layer left empty for clarity
-    memset(epd_temp, 0x00, epd_buffer_size);
-    FixBuffer(epd_temp, epd_buffer_red, epd_width, epd_height);
-
-    // Send using full_or_partial passed by scheduler
-    EPD_Display(epd_buffer, epd_buffer_red, epd_width * epd_height / 8, full_or_partial);
-}
-
 _attribute_ram_code_ void epd_display_char(uint8_t data)
 {
     int i;
@@ -444,10 +405,6 @@ void epd_update(struct date_time _time, uint16_t battery_mv, int16_t temperature
         break;
     case 2:
         update_time_scene(_time, battery_mv, temperature, epd_display_time_with_date);
-        break;
-    case 3:
-        // Partial refresh demo scene
-        update_time_scene(_time, battery_mv, temperature, epd_display_partial_demo);
         break;
     default:
         break;

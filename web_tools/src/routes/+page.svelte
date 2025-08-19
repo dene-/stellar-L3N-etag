@@ -68,11 +68,6 @@
 							class="btn btn-sm join-item"
 							on:click={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}>2: Time+Date</button
 						>
-						<button
-							class="btn btn-sm join-item"
-							on:click={() => bleConnectionStore.sendRxTxCommand('e1' + hb(3))}
-							>3: Partial Demo</button
-						>
 					</div>
 				</div>
 
