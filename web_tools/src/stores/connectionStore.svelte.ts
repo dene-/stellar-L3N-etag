@@ -1,5 +1,6 @@
 // Declare globals that may be provided elsewhere
 import { logStore } from "./logStore.svelte";
+import { intToHex, canvas2bytes, bytesToHex as bytesToHexAB } from "$lib/utils";
 
 function hexToBytes(hex: string): Uint8Array {
   const bytes: number[] = [];
@@ -187,6 +188,42 @@ class BleConnectionStore {
     } else {
       logStore.addLog("Service unavailable. Is Bluetooth connected?");
     }
+  }
+
+  // Send a hex string buffer in chunks to the EPD characteristic in either BW or BWR mode
+  async sendBufferData(valueHex: string, type: 'bw' | 'bwr') {
+    if (!this.epdCharacteristic) {
+      logStore.addLog("Service unavailable. Is Bluetooth connected?");
+      return;
+    }
+
+    const code = type === 'bwr' ? '00' : 'ff';
+    const step = 480; // hex chars per chunk (240 bytes)
+    let partIndex = 0;
+    for (let i = 0; i < valueHex.length; i += step) {
+      logStore.addLog(
+        `Sending block ${partIndex + 1}. Size: ${step / 2 + 4} bytes. Offset: ${i / 2}`
+      );
+      const chunk = valueHex.substring(i, i + step);
+      const pkt = '03' + code + intToHex(i / 2, 2) + chunk;
+      await this.sendEpdCommand(pkt);
+      partIndex += 1;
+    }
+  }
+
+  // Prepare display and upload both BW and BWR buffers from a canvas, then trigger full refresh
+  async uploadImageFromCanvas(canvas: HTMLCanvasElement) {
+    const start = Date.now();
+    await this.sendEpdCommand('0000');
+    await this.sendEpdCommand('020000');
+
+    const bw = canvas2bytes(canvas, 'bw');
+    const bwr = canvas2bytes(canvas, 'bwr');
+    await this.sendBufferData(bytesToHexAB(new Uint8Array(bw).buffer), 'bw');
+    await this.sendBufferData(bytesToHexAB(new Uint8Array(bwr).buffer), 'bwr');
+
+    await this.sendEpdCommand('0101');
+    logStore.addLog(`Refresh done, took ${((Date.now() - start) / 1000).toFixed(2)}s`);
   }
 
   resetVariables() {

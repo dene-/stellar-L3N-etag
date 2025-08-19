@@ -1602,6 +1602,11 @@ reusify@^1.0.4:
   resolved "https://registry.yarnpkg.com/reusify/-/reusify-1.1.0.tgz#0fe13b9522e1473f51b558ee796e08f11f9b489f"
   integrity sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==
 
+rgbquant@^1.1.2:
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/rgbquant/-/rgbquant-1.1.2.tgz#d95e889a8fcb1e6c1a4fa2ccc8be3a41a2fcd185"
+  integrity sha512-AGuKVeUUFW5rhm4Eu/7SXQRSxs3MoXIGKP4i/5Rok89QBrOu9+ytWezuxHhCsHT9Y6z+sGPKL9PKo6X8tZNUaw==
+
 rollup@^4.43.0:
   version "4.46.2"
   resolved "https://registry.yarnpkg.com/rollup/-/rollup-4.46.2.tgz#09b1a45d811e26d09bed63dc3ecfb6831c16ce32"
