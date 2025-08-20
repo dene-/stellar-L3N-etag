@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { bleConnectionStore } from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
-	import { bwPalette, bwrPalette, ditheringCanvasByPalette } from '$lib/utils';
+	import { bwPalette, bwrPalette, ditheringCanvasByPalette, bytesToHex } from '$lib/utils';
 
 	// Helpers to build hex payloads
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
@@ -9,6 +9,7 @@
 	let openTemp = $state(true);
 	let openEpd = $state(true);
 	let openImage = $state(true);
+	let openFirmware = $state(true);
 
 	let charByteHex = $state('ff');
 
@@ -16,6 +17,8 @@
 	let serpentine = $state(false);
 	let canvasEl: HTMLCanvasElement | null = null;
 	let originalImageData: ImageData | null = null;
+
+	let firmwareArray = $state('');
 
 	function onCanvasReady(node: HTMLCanvasElement) {
 		canvasEl = node;
@@ -30,23 +33,58 @@
 		};
 	}
 
-	function handleImageFile(ev: Event) {
-		const input = ev.target as HTMLInputElement;
+	function handleImageFile(event: Event) {
+		const input = event.target as HTMLInputElement;
+
 		if (!canvasEl || !input.files || input.files.length === 0) return;
+
 		const file = input.files[0];
+
 		const img = new Image();
 		img.src = URL.createObjectURL(file);
+
 		img.onload = () => {
 			try {
 				const ctx = canvasEl!.getContext('2d', { willReadFrequently: true });
+
 				if (!ctx) return;
+
 				ctx.clearRect(0, 0, canvasEl!.width, canvasEl!.height);
 				ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, canvasEl!.width, canvasEl!.height);
+
 				originalImageData = ctx.getImageData(0, 0, canvasEl!.width, canvasEl!.height);
+
 				applyDithering();
 			} finally {
 				URL.revokeObjectURL(img.src);
 			}
+		};
+	}
+
+	function handleFirmwareFile(event: Event) {
+		const input = event.target as HTMLInputElement;
+
+		var reader = new FileReader();
+
+		if (!input.files || !input.files[0]) {
+			logStore.addLog('No file selected');
+			return;
+		}
+
+		reader.readAsArrayBuffer(input.files[0]);
+		let fileName = input.files[0].name;
+
+		reader.onload = function () {
+			firmwareArray = bytesToHex(this.result as ArrayBuffer);
+			if (firmwareArray.substring(16, 24) != '4b4e4c54') {
+				alert('Select file is no telink firmware .bin');
+				logStore.addLog('Select file is no telink firmware .bin');
+
+				firmwareArray = '';
+				return;
+			}
+
+			logStore.addLog(`[${fileName}] selected, size: ${firmwareArray.length / 2} bytes`);
 		};
 	}
 
@@ -94,13 +132,17 @@
 		<div class="bg-base-300 rounded-lg p-3 prose max-w-none">
 			<h3>Connection</h3>
 			<div class="flex gap-3">
-				<button class="btn btn-primary" onclick={() => bleConnectionStore.preConnect()}>
+				<button
+					class="btn btn-primary"
+					onclick={() => bleConnectionStore.preConnect()}
+					disabled={bleConnectionStore.isFlashingFirmware || bleConnectionStore.connected}
+				>
 					Connect
 				</button>
 				<button
 					class="btn btn-secondary"
 					onclick={() => bleConnectionStore.disconnect()}
-					disabled={!bleConnectionStore.connected}
+					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 				>
 					Disconnect
 				</button>
@@ -113,11 +155,17 @@
 			<div class="collapse-content">
 				<div class="prose max-w-none p-0">
 					<div class="flex gap-3">
-						<button class="btn" onclick={setTimeNow}>Set time now</button>
+						<button
+							class="btn"
+							onclick={setTimeNow}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							Set time now
+						</button>
 						<button
 							class="btn btn-primary"
 							onclick={() => bleConnectionStore.sendRxTxCommand('e2aa')}
-							disabled={!bleConnectionStore.connected}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
 							Get temperature
 						</button>
@@ -134,7 +182,7 @@
 					<button
 						class="btn"
 						onclick={() => bleConnectionStore.sendRxTxCommand('e200')}
-						disabled={!bleConnectionStore.connected}
+						disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 					>
 						Flush (partial)
 					</button>
@@ -143,21 +191,21 @@
 						<button
 							class="btn"
 							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(0))}
-							disabled={!bleConnectionStore.connected}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
 							0: Image mode (no scene)
 						</button>
 						<button
 							class="btn"
 							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(1))}
-							disabled={!bleConnectionStore.connected}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
 							1: Default
 						</button>
 						<button
 							class="btn"
 							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}
-							disabled={!bleConnectionStore.connected}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
 							2: Time + Date
 						</button>
@@ -169,12 +217,12 @@
 							<input
 								class="input input-sm input-bordered join-item w-24"
 								bind:value={charByteHex}
-								disabled={!bleConnectionStore.connected}
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							/>
 							<button
 								class="btn btn-sm join-item"
 								onclick={() => bleConnectionStore.sendRxTxCommand('b1' + (charByteHex || '00'))}
-								disabled={!bleConnectionStore.connected}
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							>
 								Draw
 							</button>
@@ -198,7 +246,7 @@
 								type="file"
 								accept=".png,.jpg,.jpeg,.bmp,.webp"
 								onchange={handleImageFile}
-								disabled={!bleConnectionStore.connected}
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							/>
 						</fieldset>
 
@@ -208,7 +256,7 @@
 								bind:value={ditheringMode}
 								class="select select-bordered select-sm w-60"
 								onchange={applyDithering}
-								disabled={!bleConnectionStore.connected}
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							>
 								<optgroup label="BW">
 									<option value="bw_FloydSteinberg">BW FloydSteinberg</option>
@@ -242,7 +290,7 @@
 									type="checkbox"
 									class="checkbox checkbox-sm"
 									bind:checked={serpentine}
-									disabled={!bleConnectionStore.connected}
+									disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 									onchange={applyDithering}
 								/>
 								<span class="label-text">Enable</span>
@@ -261,7 +309,7 @@
 							></canvas>
 						</div>
 						<button
-							disabled={!bleConnectionStore.connected}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							class="btn btn-primary self-start"
 							onclick={uploadImage}
 						>
@@ -271,9 +319,72 @@
 				</div>
 			</div>
 		</div>
+
+		<div class="collapse collapse-arrow bg-base-300 rounded-lg">
+			<input type="checkbox" bind:checked={openFirmware} />
+			<div class="collapse-title text-lg font-semibold">Flash firmware</div>
+			<div class="collapse-content">
+				<div class="flex flex-col gap-3">
+					<div class="flex flex-col lg:flex-row flex-wrap gap-3">
+						<fieldset class="fieldset">
+							<legend class="fieldset-legend">Select firmware</legend>
+							<input
+								class="file-input file-input-bordered file-input-sm"
+								type="file"
+								accept=".bin"
+								onchange={handleFirmwareFile}
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+								onclick={(event: Event) => {
+									event.target && ((event.target as HTMLInputElement).value = '');
+								}}
+							/>
+						</fieldset>
+					</div>
+
+					<div class="flex flex-col gap-3">
+						<textarea
+							name="firmware"
+							id="firmware"
+							class="textarea w-full resize-none max-w-[500px] focus:outline-none active:outline-none select-none pointer-events-none"
+							bind:value={firmwareArray}
+						></textarea>
+						<progress
+							class="progress progress-primary w-full max-w-[500px]"
+							value={bleConnectionStore.firmwareUploadProgress}
+							max="100"
+						></progress>
+						<!-- {#if !bleConnectionStore.isFlashingFirmware && bleConnectionStore.firmwareUploadProgress >= 99}
+							<div role="alert" class="alert alert-success">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="h-6 w-6 shrink-0 stroke-current"
+									fill="none"
+									viewBox="0 0 24 24"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+									/>
+								</svg>
+								<span>Firmware flashing complete!</span>
+							</div>
+						{/if} -->
+						<button
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+							class="btn btn-primary self-start"
+							onclick={() => bleConnectionStore.flashFirmware(0x20000, firmwareArray)}
+						>
+							Upload Firmware
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
 	</div>
 	<div
-		class="rounded-lg bg-base-300 p-3 w-full lg:w-1/3 max-h-[70vh] flex flex-col overflow-auto shrink-0 gap-3"
+		class="rounded-lg bg-base-300 p-3 w-full lg:w-2/5 max-h-[50vh] flex flex-col overflow-auto shrink-0 gap-3"
 	>
 		<div class="flex items-center prose max-w-none">
 			<h4 class="flex-grow !m-0">Logs</h4>

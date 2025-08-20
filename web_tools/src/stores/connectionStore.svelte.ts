@@ -1,20 +1,6 @@
 // Declare globals that may be provided elsewhere
 import { logStore } from "./logStore.svelte";
-import { intToHex, canvas2bytes, bytesToHex as bytesToHexAB } from "$lib/utils";
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes: number[] = [];
-  for (let c = 0; c < hex.length; c += 2) {
-    bytes.push(parseInt(hex.slice(c, c + 2), 16));
-  }
-  return new Uint8Array(bytes);
-}
-
-function bytesToHex(data: ArrayBuffer | ArrayLike<number> | ArrayBufferLike): string {
-  return new Uint8Array(data as ArrayBuffer).reduce((memo, i) => {
-    return memo + ("0" + i.toString(16)).slice(-2);
-  }, "");
-}
+import { intToHex, canvas2bytes, bytesToHex, decimalToHex, hexToBytes } from "$lib/utils";
 
 class BleConnectionStore {
   private bleDevice: BluetoothDevice | null = $state(null);
@@ -23,6 +9,8 @@ class BleConnectionStore {
   private rxtxCharacteristic: BluetoothRemoteGATTCharacteristic | null = $state(null);
   private epdService: BluetoothRemoteGATTService | null = $state(null);
   private epdCharacteristic: BluetoothRemoteGATTCharacteristic | null = $state(null);
+  private writeService: BluetoothRemoteGATTService | null = $state(null);
+  private writeCharacteristic: BluetoothRemoteGATTCharacteristic | null = $state(null);
 
   private bleDeviceOptionalServicesIds: string[] = [
     '0000221f-0000-1000-8000-00805f9b34fb',
@@ -31,11 +19,15 @@ class BleConnectionStore {
   ];
   private rxtxServiceId = '00001f10-0000-1000-8000-00805f9b34fb';
   private rxtxCharacteristicId = '00001f1f-0000-1000-8000-00805f9b34fb';
-  private epdServiceId = '13187b10-eba9-a3ba-044e-83d3217d9a38';
-  private epdCharacteristicId = '4b646063-6264-f3a7-8941-e65356ea82fe';
+  private edpServiceId = '13187b10-eba9-a3ba-044e-83d3217d9a38';
+  private edpCharacteristicId = '4b646063-6264-f3a7-8941-e65356ea82fe';
+  private writeServiceId = '0000221f-0000-1000-8000-00805f9b34fb';
+  private writeCharacteristicId = '0000331f-0000-1000-8000-00805f9b34fb';
 
   preconnected = $state(false);
   connected = $state(false);
+  firmwareUploadProgress = $state(0);
+  isFlashingFirmware = $state(false);
 
   disconnect() {
     this.resetVariables();
@@ -76,7 +68,7 @@ class BleConnectionStore {
 
     this.resetVariables();
 
-    logStore.addLog('Reconnecting');
+    logStore.addLog('Reconnecting...');
 
     setTimeout(async () => {
       await this.connect();
@@ -95,13 +87,13 @@ class BleConnectionStore {
     }
 
     this.gattServer = await this.bleDevice.gatt.connect();
-    logStore.addLog('Found GATT server');
+    logStore.addLog('Found GATT server.');
 
-    this.epdService = await this.gattServer.getPrimaryService(this.epdServiceId);
-    logStore.addLog('Found service');
+    this.epdService = await this.gattServer.getPrimaryService(this.edpServiceId);
+    logStore.addLog('Found EDP service.');
 
-    this.epdCharacteristic = await this.epdService.getCharacteristic(this.epdCharacteristicId);
-    logStore.addLog('Service connected');
+    this.epdCharacteristic = await this.epdService.getCharacteristic(this.edpCharacteristicId);
+    logStore.addLog('EDP Service connected.');
 
     await this.epdCharacteristic.startNotifications();
 
@@ -111,17 +103,22 @@ class BleConnectionStore {
       const value = characteristic.value;
 
       if (!value) {
-        logStore.addLog('[From display]: No data');
+        logStore.addLog('[From display]: No data.');
         return;
       }
 
       const hex = bytesToHex(value.buffer);
-      console.log('epd ret', hex);
 
       const count = parseInt('0x' + hex);
 
-      logStore.addLog(`[From display]: Received ${count} bytes`);
+      logStore.addLog(`[From display]: Received ${count} bytes.`);
     });
+
+    this.writeService = await this.gattServer.getPrimaryService(this.writeServiceId);
+    logStore.addLog('Found Write service.');
+
+    this.writeCharacteristic = await this.writeService.getCharacteristic(this.writeCharacteristicId);
+    logStore.addLog('Write Service connected.');
 
     // document.getElementById('connectbutton').innerHTML = 'Disconnect';
     await this.connectRXTX();
@@ -133,11 +130,12 @@ class BleConnectionStore {
     }
 
     this.rxtxService = await this.gattServer.getPrimaryService(this.rxtxServiceId);
-    logStore.addLog('Found UART service');
+    logStore.addLog('Found RXTX service.');
 
     this.rxtxCharacteristic = await this.rxtxService.getCharacteristic(
       this.rxtxCharacteristicId
     );
+    logStore.addLog('RXTX Service connected.');
 
     // Start notifications to receive async responses from the device (e.g. E2 AA temperature)
     await this.rxtxCharacteristic.startNotifications();
@@ -148,7 +146,7 @@ class BleConnectionStore {
       const value = characteristic.value;
 
       if (!value) {
-        logStore.addLog('[From display]: No data');
+        logStore.addLog('[From display]: No data.');
         return;
       }
 
@@ -166,8 +164,6 @@ class BleConnectionStore {
       // Fallback: log raw payload
       logStore.addLog(`[From display][RXTX]: ${hex}`);
     });
-
-    logStore.addLog('UART service connected');
 
     this.connected = true;
   }
@@ -219,11 +215,96 @@ class BleConnectionStore {
 
     const bw = canvas2bytes(canvas, 'bw');
     const bwr = canvas2bytes(canvas, 'bwr');
-    await this.sendBufferData(bytesToHexAB(new Uint8Array(bw).buffer), 'bw');
-    await this.sendBufferData(bytesToHexAB(new Uint8Array(bwr).buffer), 'bwr');
+    await this.sendBufferData(bytesToHex(new Uint8Array(bw).buffer), 'bw');
+    await this.sendBufferData(bytesToHex(new Uint8Array(bwr).buffer), 'bwr');
 
     await this.sendEpdCommand('0101');
     logStore.addLog(`Refresh done, took ${((Date.now() - start) / 1000).toFixed(2)}s`);
+  }
+
+  private async eraseFwArea() {
+    const fwAreaSize = 0x20000;
+    let fwCurAddress = 0x20000;
+    while (fwCurAddress < 0x20000 + fwAreaSize) {
+      const hex_address = decimalToHex(fwCurAddress, 8);
+
+      await this.writeCharacteristic?.writeValue(hexToBytes("01" + hex_address) as BufferSource);
+
+      fwCurAddress += 0x1000;
+    }
+  }
+
+  private calculateCRC(localData: string) {
+    let checkPosistion = 0;
+    let outCRC = 0;
+
+    while (checkPosistion < 0x40000) {
+      if (checkPosistion < localData.length)
+        outCRC += Number(
+          "0x" + localData.substring(checkPosistion, checkPosistion + 2)
+        );
+      else outCRC += 0xff;
+      checkPosistion += 2;
+    }
+
+    return decimalToHex(outCRC & 0xffff, 4);
+  }
+
+  private async sendPart(address: number, data: string) {
+    const hex_address = decimalToHex(address, 8);
+    const part_len = 480;
+
+    while (data.length) {
+      let cur_part_len = part_len;
+
+      if (data.length < part_len) {
+        cur_part_len = data.length;
+      }
+
+      const data_part = data.substring(0, cur_part_len);
+      data = data.substring(cur_part_len);
+
+      await this.writeCharacteristic?.writeValue(hexToBytes("03" + data_part) as BufferSource);
+    }
+    await this.writeCharacteristic?.writeValue(hexToBytes("02" + hex_address) as BufferSource);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  async flashFirmware(address: number, data: string): Promise<void> {
+    const startTime = new Date().getTime();
+    const part_len = 0x200;
+    const inCRC = this.calculateCRC(data);
+    const totalDataLength = data.length;
+    let addressOffset = 0;
+
+    this.firmwareUploadProgress = 0;
+    this.isFlashingFirmware = true;
+
+    await this.eraseFwArea();
+
+    logStore.addLog('Flashing firmware... wait a little.');
+
+    while (data.length) {
+      let cur_part_len = part_len;
+
+      if (data.length < part_len) {
+        cur_part_len = data.length;
+      }
+
+      const data_part = data.substring(0, cur_part_len);
+
+      data = data.substring(cur_part_len);
+      await this.sendPart(address + addressOffset, data_part);
+      addressOffset += cur_part_len / 2;
+
+      this.firmwareUploadProgress = (addressOffset / (totalDataLength / 2)) * 100;
+    }
+
+    logStore.addLog("Sending final flash: " + "07C001CEED" + inCRC);
+    logStore.addLog(`Firmware flashed completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
+    this.isFlashingFirmware = false;
+    await this.writeCharacteristic?.writeValue(hexToBytes("07C001CEED" + inCRC) as BufferSource);
   }
 
   resetVariables() {
@@ -234,7 +315,8 @@ class BleConnectionStore {
     this.rxtxService = null;
     this.connected = false;
     this.preconnected = false;
-    // document.getElementById("log").value = "";
+    this.firmwareUploadProgress = 0;
+    this.isFlashingFirmware = false;
   }
 }
 

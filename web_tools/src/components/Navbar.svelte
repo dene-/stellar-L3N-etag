@@ -4,10 +4,7 @@
 
 {#snippet navbarLinks()}
 	<li><a href="/">Home</a></li>
-	<li><a href="web_tool.html">Web Tool</a></li>
-	<li><a href="weather.html">Weather Display</a></li>
-	<li><a href="ble_flasher.html">BLE Flasher</a></li>
-	<li><a href="uart_flasher.html">UART Flasher</a></li>
+	<li><a href="weather.html" target="_blank">Weather Display</a></li>
 {/snippet}
 
 <div class="drawer">

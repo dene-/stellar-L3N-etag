@@ -30,6 +30,15 @@ export function intToHex(intIn: number, bytes = 4): string {
   return intIn.toString(16).padStart(bytes * 2, '0');
 }
 
+export function decimalToHex(d: number, padding: number = 2): string {
+  const hex = Number(d).toString(16);
+
+  if (hex.startsWith('-')) {
+    return '-' + hex.slice(1).padStart(padding, '0');
+  }
+  return hex.padStart(padding, '0');
+}
+
 // Convert canvas RGBA into packed bitstream (LSB first per byte) scanning X right->left, Y top->bottom
 export function canvas2bytes(canvas: HTMLCanvasElement, type: 'bw' | 'bwr' = 'bw'): number[] {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
