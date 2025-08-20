@@ -6,12 +6,12 @@
 	// Helpers to build hex payloads
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
 
-	let charByteHex = $state('ff');
 	let openTemp = $state(true);
 	let openEpd = $state(true);
-
-	// Image upload section state
 	let openImage = $state(true);
+
+	let charByteHex = $state('ff');
+
 	let ditheringMode: string = $state('bwr_Atkinson');
 	let serpentine = $state(false);
 	let canvasEl: HTMLCanvasElement | null = null;
@@ -97,7 +97,11 @@
 				<button class="btn btn-primary" onclick={() => bleConnectionStore.preConnect()}>
 					Connect
 				</button>
-				<button class="btn btn-secondary" onclick={() => bleConnectionStore.disconnect()}>
+				<button
+					class="btn btn-secondary"
+					onclick={() => bleConnectionStore.disconnect()}
+					disabled={!bleConnectionStore.connected}
+				>
 					Disconnect
 				</button>
 			</div>
@@ -134,35 +138,33 @@
 					>
 						Flush (partial)
 					</button>
-					<div class="form-control flex flex-col">
-						<h4>Scene</h4>
-						<div class="join">
-							<button
-								class="btn join-item"
-								onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(0))}
-								disabled={!bleConnectionStore.connected}
-							>
-								0: Image mode (no scene)
-							</button>
-							<button
-								class="btn join-item"
-								onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(1))}
-								disabled={!bleConnectionStore.connected}
-							>
-								1: Default
-							</button>
-							<button
-								class="btn join-item"
-								onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}
-								disabled={!bleConnectionStore.connected}
-							>
-								2: Time + Date
-							</button>
-						</div>
+					<div class="flex flex-wrap gap-3">
+						<h4 class="w-full">Scene</h4>
+						<button
+							class="btn"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(0))}
+							disabled={!bleConnectionStore.connected}
+						>
+							0: Image mode (no scene)
+						</button>
+						<button
+							class="btn"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(1))}
+							disabled={!bleConnectionStore.connected}
+						>
+							1: Default
+						</button>
+						<button
+							class="btn"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}
+							disabled={!bleConnectionStore.connected}
+						>
+							2: Time + Date
+						</button>
 					</div>
 
-					<div class="flex flex-col">
-						<h4>Fill byte (hex)</h4>
+					<div class="flex flex-wrap gap-3">
+						<h4 class="w-full">Fill byte (hex)</h4>
 						<div class="join">
 							<input
 								class="input input-sm input-bordered join-item w-24"
@@ -187,20 +189,21 @@
 			<input type="checkbox" bind:checked={openImage} />
 			<div class="collapse-title text-lg font-semibold">Image upload</div>
 			<div class="collapse-content">
-				<div class="prose max-w-none p-0 flex flex-col gap-3">
-					<div class="flex flex-wrap items-end gap-3">
-						<div class="form-control">
-							<label class="label"><span class="label-text">Choose image</span></label>
+				<div class="flex flex-col gap-3">
+					<div class="flex flex-col lg:flex-row flex-wrap gap-3">
+						<fieldset class="fieldset">
+							<legend class="fieldset-legend">Choose image</legend>
 							<input
 								class="file-input file-input-bordered file-input-sm"
 								type="file"
-								accept=".png,.jpg,.bmp,.webp"
+								accept=".png,.jpg,.jpeg,.bmp,.webp"
 								onchange={handleImageFile}
 								disabled={!bleConnectionStore.connected}
 							/>
-						</div>
-						<div class="form-control">
-							<label class="label"><span class="label-text">Dithering</span></label>
+						</fieldset>
+
+						<fieldset class="fieldset">
+							<legend class="fieldset-legend">Dithering</legend>
 							<select
 								bind:value={ditheringMode}
 								class="select select-bordered select-sm w-60"
@@ -208,49 +211,53 @@
 								disabled={!bleConnectionStore.connected}
 							>
 								<optgroup label="BW">
-									<option value="bw_FloydSteinberg">FloydSteinberg</option>
-									<option value="bw_FalseFloydSteinberg">FalseFloydSteinberg</option>
-									<option value="bw_Stucki">Stucki</option>
-									<option value="bw_Atkinson">Atkinson</option>
-									<option value="bw_Jarvis">Jarvis</option>
-									<option value="bw_Burkes">Burkes</option>
-									<option value="bw_Sierra">Sierra</option>
-									<option value="bw_TwoSierra">TwoSierra</option>
-									<option value="bw_SierraLite">SierraLite</option>
+									<option value="bw_FloydSteinberg">BW FloydSteinberg</option>
+									<option value="bw_FalseFloydSteinberg">BW FalseFloydSteinberg</option>
+									<option value="bw_Stucki">BW Stucki</option>
+									<option value="bw_Atkinson">BW Atkinson</option>
+									<option value="bw_Jarvis">BW Jarvis</option>
+									<option value="bw_Burkes">BW Burkes</option>
+									<option value="bw_Sierra">BW Sierra</option>
+									<option value="bw_TwoSierra">BW TwoSierra</option>
+									<option value="bw_SierraLite">BW SierraLite</option>
 								</optgroup>
 								<optgroup label="BWR">
-									<option value="bwr_FloydSteinberg">FloydSteinberg</option>
-									<option value="bwr_FalseFloydSteinberg">FalseFloydSteinberg</option>
-									<option value="bwr_Stucki">Stucki</option>
-									<option value="bwr_Atkinson">Atkinson</option>
-									<option value="bwr_Jarvis">Jarvis</option>
-									<option value="bwr_Burkes">Burkes</option>
-									<option value="bwr_Sierra">Sierra</option>
-									<option value="bwr_TwoSierra">TwoSierra</option>
-									<option value="bwr_SierraLite">SierraLite</option>
+									<option value="bwr_FloydSteinberg">BWR FloydSteinberg</option>
+									<option value="bwr_FalseFloydSteinberg">BWR FalseFloydSteinberg</option>
+									<option value="bwr_Stucki">BWR Stucki</option>
+									<option value="bwr_Atkinson">BWR Atkinson</option>
+									<option value="bwr_Jarvis">BWR Jarvis</option>
+									<option value="bwr_Burkes">BWR Burkes</option>
+									<option value="bwr_Sierra">BWR Sierra</option>
+									<option value="bwr_TwoSierra">BWR TwoSierra</option>
+									<option value="bwr_SierraLite">BWR SierraLite</option>
 								</optgroup>
 							</select>
-						</div>
-						<label class="label cursor-pointer gap-2 mt-6">
-							<input
-								type="checkbox"
-								class="checkbox checkbox-sm"
-								bind:checked={serpentine}
-								disabled={!bleConnectionStore.connected}
-								onchange={applyDithering}
-							/>
-							<span class="label-text">Serpentine</span>
-						</label>
+						</fieldset>
+
+						<fieldset class="fieldset">
+							<legend class="fieldset-legend">Serpentine</legend>
+							<label class="cursor-pointer inline-flex items-center gap-2">
+								<input
+									type="checkbox"
+									class="checkbox checkbox-sm"
+									bind:checked={serpentine}
+									disabled={!bleConnectionStore.connected}
+									onchange={applyDithering}
+								/>
+								<span class="label-text">Enable</span>
+							</label>
+						</fieldset>
 					</div>
 
 					<div class="flex flex-col gap-2">
-						<div class="inline-block self-start bg-base-100 rounded-lg p-3">
+						<div class="self-start bg-base-100 rounded-lg p-3 w-full max-w-[500px]">
 							<canvas
 								use:onCanvasReady
 								width="250"
 								height="128"
-								class="eink border rounded"
-								style="image-rendering: pixelated; width: 500px; height: 256px;"
+								class="border w-full"
+								style="image-rendering: pixelated"
 							></canvas>
 						</div>
 						<button
