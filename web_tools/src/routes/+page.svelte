@@ -345,14 +345,17 @@
 						<textarea
 							name="firmware"
 							id="firmware"
-							class="textarea w-full resize-none max-w-[500px] focus:outline-none active:outline-none select-none pointer-events-none"
+							class="textarea w-full resize-none focus:outline-none active:outline-none select-none pointer-events-none"
 							bind:value={firmwareArray}
 						></textarea>
-						<progress
-							class="progress progress-primary w-full max-w-[500px]"
-							value={bleConnectionStore.firmwareUploadProgress}
-							max="100"
-						></progress>
+						<div class="flex gap-3 items-center">
+							<progress
+								class="progress progress-primary w-full h-6 rounded-lg"
+								value={bleConnectionStore.firmwareUploadProgress}
+								max="100"
+							></progress>
+							<div>{Math.ceil(bleConnectionStore.firmwareUploadProgress)}%</div>
+						</div>
 						<!-- {#if !bleConnectionStore.isFlashingFirmware && bleConnectionStore.firmwareUploadProgress >= 99}
 							<div role="alert" class="alert alert-success">
 								<svg
