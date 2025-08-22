@@ -5,3 +5,7 @@
 		light --default,
 		dark --prefersdark;
 }
+
+body {
+	height: 100dvh;
+}

@@ -7,6 +7,7 @@
 
 #include "etime.h"
 #include "flash.h"
+#include "led.h"
 
 extern settings_struct settings;
 extern uint8_t epd_temperature; // last measured EPD temperature (°C)
@@ -91,6 +92,30 @@ void cmd_parser(void *p)
 		else
 		{
 			set_EPD_wait_flush();
+		}
+	}
+	else if (inData == 0xE3)
+	{ // Toggle LED flashing enable: E3 00 -> disable, E3 01 -> enable
+		if (req->dat[1] == 0x00)
+		{
+			settings.led_flashing_enabled = 0;
+		}
+		else if (req->dat[1] == 0x01)
+		{
+			settings.led_flashing_enabled = 1;
+		}
+		// Optionally persist immediately
+		save_settings_to_flash();
+	}
+	else if (inData == 0xE4)
+	{ // LED rainbow mode: E4 00 -> disable, E4 01 -> enable
+		if (req->dat[1] == 0x00)
+		{
+			led_set_rainbow_enabled(0);
+		}
+		else if (req->dat[1] == 0x01)
+		{
+			led_set_rainbow_enabled(1);
 		}
 	}
 }

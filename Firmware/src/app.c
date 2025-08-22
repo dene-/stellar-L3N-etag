@@ -51,13 +51,15 @@ _attribute_ram_code_ void main_loop(void)
     {
         battery_mv = get_battery_mv();
         battery_level = get_battery_level(battery_mv);
-        temperature = EPD_read_temp(); //get_temperature_c();
+        temperature = EPD_read_temp(); // get_temperature_c();
         set_adv_data(temperature * 10, battery_level, battery_mv);
         ble_send_battery(battery_level);
         ble_send_temp(temperature * 10);
     }
 
     epd_update(get_time(), battery_mv, temperature);
+    // LED rainbow animation (non-blocking)
+    led_rainbow_task();
 
     if (time_reached_period(Timer_CH_0, 10))
     {
@@ -66,10 +68,10 @@ _attribute_ram_code_ void main_loop(void)
         else
             set_led_color(2);
         WaitMs(1);
+
         set_led_color(0);
     }
 
-    
     if (epd_state_handler()) // if epd_update is ongoing enable gpio wakeup to put the display to sleep as fast as possible
     {
         cpu_set_gpio_wakeup(EPD_BUSY, 1, 1);
@@ -80,5 +82,4 @@ _attribute_ram_code_ void main_loop(void)
     {
         blt_pm_proc();
     }
-    
 }

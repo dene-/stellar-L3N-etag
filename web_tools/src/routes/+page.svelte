@@ -2,14 +2,13 @@
 	import { bleConnectionStore } from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
 	import { bwPalette, bwrPalette, ditheringCanvasByPalette, bytesToHex } from '$lib/utils';
+	import { weatherStore } from '../stores/weatherStore.svelte';
+	import pica from 'pica';
 
 	// Helpers to build hex payloads
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
 
-	let openTemp = $state(true);
-	let openEpd = $state(true);
-	let openImage = $state(true);
-	let openFirmware = $state(true);
+	let location = $state('Barcelona');
 
 	let charByteHex = $state('ff');
 
@@ -23,9 +22,12 @@
 	function onCanvasReady(node: HTMLCanvasElement) {
 		canvasEl = node;
 		const ctx = node.getContext('2d', { willReadFrequently: true });
+
 		if (!ctx) return;
+
 		ctx.fillStyle = '#fff';
 		ctx.fillRect(0, 0, node.width, node.height);
+
 		return {
 			destroy() {
 				canvasEl = null;
@@ -43,14 +45,28 @@
 		const img = new Image();
 		img.src = URL.createObjectURL(file);
 
-		img.onload = () => {
+		img.onload = async () => {
 			try {
 				const ctx = canvasEl!.getContext('2d', { willReadFrequently: true });
 
 				if (!ctx) return;
 
+				const canvasCopy = canvasEl?.cloneNode(true) as HTMLCanvasElement;
+
+				const resizedPhoto = await pica().resize(img, canvasCopy!);
+
 				ctx.clearRect(0, 0, canvasEl!.width, canvasEl!.height);
-				ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, canvasEl!.width, canvasEl!.height);
+				ctx.drawImage(
+					resizedPhoto,
+					0,
+					0,
+					resizedPhoto.width,
+					resizedPhoto.height,
+					0,
+					0,
+					canvasEl!.width,
+					canvasEl!.height
+				);
 
 				originalImageData = ctx.getImageData(0, 0, canvasEl!.width, canvasEl!.height);
 
@@ -90,11 +106,16 @@
 
 	function applyDithering() {
 		if (!canvasEl) return;
+
 		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+
 		if (!ctx) return;
+
 		if (originalImageData) ctx.putImageData(originalImageData, 0, 0);
+
 		const isBwr = ditheringMode.startsWith('bwr_');
 		const kern = ditheringMode.split('_')[1] || 'Atkinson';
+
 		ditheringCanvasByPalette(canvasEl, isBwr ? bwrPalette : bwPalette, kern, {
 			dithSerp: serpentine
 		});
@@ -127,7 +148,7 @@
 	}
 </script>
 
-<div class="flex flex-col lg:flex-row gap-3">
+<div class="flex flex-col flex-grow lg:flex-row gap-3 pb-5">
 	<div class="flex-grow flex flex-col gap-3">
 		<div class="bg-base-300 rounded-lg p-3 prose max-w-none">
 			<h3>Connection</h3>
@@ -150,13 +171,13 @@
 		</div>
 
 		<div class="collapse collapse-arrow bg-base-300 rounded-lg">
-			<input type="checkbox" bind:checked={openTemp} />
+			<input type="radio" name="accordion" checked={true} />
 			<div class="collapse-title text-lg font-semibold">Temperature & time</div>
 			<div class="collapse-content">
 				<div class="prose max-w-none p-0">
-					<div class="flex gap-3">
+					<div class="flex gap-3 flex-wrap">
 						<button
-							class="btn"
+							class="btn btn-accent"
 							onclick={setTimeNow}
 							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
@@ -175,35 +196,73 @@
 		</div>
 
 		<div class="collapse collapse-arrow bg-base-300 rounded-lg">
-			<input type="checkbox" bind:checked={openEpd} />
+			<input type="radio" name="accordion" />
 			<div class="collapse-title text-lg font-semibold">EPD control</div>
 			<div class="collapse-content">
 				<div class="prose max-w-none p-0 flex items-start flex-col gap-3">
-					<button
-						class="btn"
-						onclick={() => bleConnectionStore.sendRxTxCommand('e200')}
-						disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-					>
-						Flush (partial)
-					</button>
+					<!-- LED flashing control (moved here) -->
+					<div class="flex flex-wrap gap-3">
+						<h4 class="w-full">LED flashing</h4>
+						<button
+							class="btn btn-error"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e300')}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							Disable
+						</button>
+						<button
+							class="btn btn-success"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e301')}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							Enable
+						</button>
+					</div>
+					<div class="flex flex-wrap gap-3">
+						<h4 class="w-full">LED rainbow</h4>
+						<button
+							class="btn btn-secondary"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e401')}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							Start rainbow
+						</button>
+						<button
+							class="btn"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e400')}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							Stop rainbow
+						</button>
+					</div>
+					<div class="flex flex-wrap gap-3">
+						<h4 class="w-full">Screen refresh</h4>
+						<button
+							class="btn btn-primary"
+							onclick={() => bleConnectionStore.sendRxTxCommand('e200')}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							Flush (partial)
+						</button>
+					</div>
 					<div class="flex flex-wrap gap-3">
 						<h4 class="w-full">Scene</h4>
 						<button
-							class="btn"
+							class="btn btn-primary"
 							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(0))}
 							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
 							0: Image mode (no scene)
 						</button>
 						<button
-							class="btn"
+							class="btn btn-secondary"
 							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(1))}
 							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
 							1: Default
 						</button>
 						<button
-							class="btn"
+							class="btn btn-accent"
 							onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}
 							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
@@ -215,12 +274,12 @@
 						<h4 class="w-full">Fill byte (hex)</h4>
 						<div class="join">
 							<input
-								class="input input-sm input-bordered join-item w-24"
+								class="input input-primary input-bordered join-item w-24"
 								bind:value={charByteHex}
 								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							/>
 							<button
-								class="btn btn-sm join-item"
+								class="btn btn-primary join-item"
 								onclick={() => bleConnectionStore.sendRxTxCommand('b1' + (charByteHex || '00'))}
 								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							>
@@ -234,15 +293,15 @@
 
 		<!-- Image upload & dithering -->
 		<div class="collapse collapse-arrow bg-base-300 rounded-lg">
-			<input type="checkbox" bind:checked={openImage} />
+			<input type="radio" name="accordion" />
 			<div class="collapse-title text-lg font-semibold">Image upload</div>
 			<div class="collapse-content">
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col lg:flex-row flex-wrap gap-3">
-						<fieldset class="fieldset">
+						<fieldset class="fieldset p-0">
 							<legend class="fieldset-legend">Choose image</legend>
 							<input
-								class="file-input file-input-bordered file-input-sm"
+								class="file-input file-input-bordered file-input-primary"
 								type="file"
 								accept=".png,.jpg,.jpeg,.bmp,.webp"
 								onchange={handleImageFile}
@@ -250,11 +309,11 @@
 							/>
 						</fieldset>
 
-						<fieldset class="fieldset">
+						<fieldset class="fieldset p-0">
 							<legend class="fieldset-legend">Dithering</legend>
 							<select
 								bind:value={ditheringMode}
-								class="select select-bordered select-sm w-60"
+								class="select select-bordered select-primary w-60"
 								onchange={applyDithering}
 								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							>
@@ -283,12 +342,12 @@
 							</select>
 						</fieldset>
 
-						<fieldset class="fieldset">
+						<fieldset class="fieldset p-0">
 							<legend class="fieldset-legend">Serpentine</legend>
 							<label class="cursor-pointer inline-flex items-center gap-2">
 								<input
 									type="checkbox"
-									class="checkbox checkbox-sm"
+									class="checkbox checkbox-primary"
 									bind:checked={serpentine}
 									disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 									onchange={applyDithering}
@@ -298,7 +357,7 @@
 						</fieldset>
 					</div>
 
-					<div class="flex flex-col gap-2">
+					<div class="flex flex-col gap-3">
 						<div class="self-start bg-base-100 rounded-lg p-3 w-full max-w-[500px]">
 							<canvas
 								use:onCanvasReady
@@ -320,16 +379,17 @@
 			</div>
 		</div>
 
+		<!-- Firmware flashing -->
 		<div class="collapse collapse-arrow bg-base-300 rounded-lg">
-			<input type="checkbox" bind:checked={openFirmware} />
+			<input type="radio" name="accordion" />
 			<div class="collapse-title text-lg font-semibold">Flash firmware</div>
 			<div class="collapse-content">
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col lg:flex-row flex-wrap gap-3">
-						<fieldset class="fieldset">
+						<fieldset class="fieldset p-0">
 							<legend class="fieldset-legend">Select firmware</legend>
 							<input
-								class="file-input file-input-bordered file-input-sm"
+								class="file-input file-input-primary file-input-bordered file-input-sm"
 								type="file"
 								accept=".bin"
 								onchange={handleFirmwareFile}
@@ -345,7 +405,7 @@
 						<textarea
 							name="firmware"
 							id="firmware"
-							class="textarea w-full resize-none focus:outline-none active:outline-none select-none pointer-events-none"
+							class="textarea textarea-primary w-full resize-none focus:outline-none active:outline-none select-none pointer-events-none"
 							bind:value={firmwareArray}
 						></textarea>
 						<div class="flex gap-3 items-center">
@@ -385,6 +445,37 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- <div class="collapse collapse-arrow bg-base-300 rounded-lg">
+			<input type="radio" name="accordion" checked />
+			<div class="collapse-title text-lg font-semibold">Weather</div>
+			<div class="collapse-content">
+				<div class="prose max-w-none p-0">
+					<div class="flex flex-col lg:flex-row gap-3">
+						<fieldset class="fieldset p-0">
+							<legend class="fieldset-legend">Location</legend>
+							<input
+								class="input input-primary"
+								type="text"
+								bind:value={location}
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+							/>
+						</fieldset>
+						<fieldset class="fieldset p-0">
+							<legend class="fieldset-legend hidden lg:opacity-0">a</legend>
+							<button
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+								class="btn btn-primary"
+								onclick={() => weatherStore.getForecast(location)}
+							>
+								Get forecast
+							</button>
+						</fieldset>
+					</div>
+					<div id="capture" class="w-[250px] h-[128px] flex pb-[6px] bg-white"></div>
+				</div>
+			</div>
+		</div> -->
 	</div>
 	<div
 		class="rounded-lg bg-base-300 p-3 w-full lg:w-2/5 max-h-[50vh] flex flex-col overflow-auto shrink-0 gap-3"

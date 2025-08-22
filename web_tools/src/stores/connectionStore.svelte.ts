@@ -99,7 +99,7 @@ class BleConnectionStore {
 
     this.epdCharacteristic.addEventListener('characteristicvaluechanged', (event: Event) => {
       const characteristic = event.target as BluetoothRemoteGATTCharacteristic;
-      console.log(characteristic);
+
       const value = characteristic.value;
 
       if (!value) {
@@ -142,7 +142,7 @@ class BleConnectionStore {
 
     this.rxtxCharacteristic.addEventListener('characteristicvaluechanged', (event: Event) => {
       const characteristic = event.target as BluetoothRemoteGATTCharacteristic;
-      console.log(characteristic);
+
       const value = characteristic.value;
 
       if (!value) {
@@ -151,7 +151,6 @@ class BleConnectionStore {
       }
 
       const hex = bytesToHex(value.buffer);
-      console.log('rxtx ret', hex);
 
       // Firmware sends 2 bytes: int16 LE (temp * 10). If no decimals, it's in steps of 10.
       if (value.byteLength === 2) {

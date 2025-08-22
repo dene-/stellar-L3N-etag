@@ -13,6 +13,6 @@
 </svelte:head>
 
 <Navbar />
-<div class="container mx-auto p-3">
+<div class="container mx-auto flex flex-col p-3 h-full">
 	{@render children?.()}
 </div>
