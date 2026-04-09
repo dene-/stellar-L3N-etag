@@ -89,6 +89,31 @@ void cmd_parser(void *p)
 			u8 buf[2] = {(u8)(t10 & 0xFF), (u8)((t10 >> 8) & 0xFF)};
 			bls_att_pushNotifyData(RxTx_CMD_OUT_DP_H, buf, 2);
 		}
+		else if (req->dat[1] == 0xAB)
+		{
+			uint16_t width = 0;
+			uint16_t height = 0;
+			uint8_t model = get_EPD_model();
+
+			if (!model)
+			{
+				EPD_detect_model();
+				model = get_EPD_model();
+			}
+
+			epd_get_current_resolution(&width, &height);
+
+			u8 buf[7] = {
+				0xE2,
+				0xAB,
+				model,
+				(u8)(width & 0xFF),
+				(u8)((width >> 8) & 0xFF),
+				(u8)(height & 0xFF),
+				(u8)((height >> 8) & 0xFF),
+			};
+			bls_att_pushNotifyData(RxTx_CMD_OUT_DP_H, buf, 7);
+		}
 		else
 		{
 			set_EPD_wait_flush();

@@ -30,7 +30,7 @@
 				</label>
 			</div>
 			<div class="flex-1">
-				<a class="text-l px-0" href="/">Stellar Pro 213R-N BLE Tools</a>
+				<a class="text-l px-0" href="/">Hanshow Stellar Pro BLE Tools</a>
 			</div>
 			<div
 				class="badge {bleConnectionStore.connected

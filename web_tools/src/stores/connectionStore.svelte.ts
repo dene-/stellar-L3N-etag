@@ -2,6 +2,49 @@
 import { logStore } from "./logStore.svelte";
 import { intToHex, canvas2bytes, bytesToHex, decimalToHex, hexToBytes } from "$lib/utils";
 
+type DisplaySource = 'default' | 'firmware' | 'manual' | 'name';
+
+type DisplayModelInfo = {
+  model: number;
+  name: string;
+  width: number;
+  height: number;
+};
+
+export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
+  { model: 0, name: 'Auto detect', width: 250, height: 128 },
+  { model: 1, name: 'BW213', width: 250, height: 128 },
+  { model: 2, name: 'BWR213', width: 250, height: 128 },
+  { model: 3, name: 'BWR154', width: 200, height: 200 },
+  { model: 4, name: '213ICE', width: 212, height: 104 },
+  { model: 5, name: 'BWR290 / BWR296', width: 296, height: 128 }
+];
+
+const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.model, info]));
+const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(2)!;
+
+function resolveDisplayModel(model: number): DisplayModelInfo {
+  return DISPLAY_MODEL_MAP.get(model) ?? DEFAULT_DISPLAY_INFO;
+}
+
+function inferDisplayModelFromName(name: string | null | undefined): DisplayModelInfo | null {
+  if (!name) {
+    return null;
+  }
+
+  const normalizedName = name.toLowerCase();
+
+  if (/\b(290|296|2\.9)\b/.test(normalizedName)) {
+    return resolveDisplayModel(5);
+  }
+
+  if (/\b(213|250|122|2\.13)\b/.test(normalizedName)) {
+    return resolveDisplayModel(2);
+  }
+
+  return null;
+}
+
 class BleConnectionStore {
   private bleDevice: BluetoothDevice | null = $state(null);
   private gattServer: BluetoothRemoteGATTServer | null = $state(null);
@@ -28,6 +71,30 @@ class BleConnectionStore {
   connected = $state(false);
   firmwareUploadProgress = $state(0);
   isFlashingFirmware = $state(false);
+  connectedDeviceName = $state('');
+  deviceModel = $state(DEFAULT_DISPLAY_INFO.model);
+  deviceModelName = $state(DEFAULT_DISPLAY_INFO.name);
+  displayWidth = $state(DEFAULT_DISPLAY_INFO.width);
+  displayHeight = $state(DEFAULT_DISPLAY_INFO.height);
+  displaySource: DisplaySource = $state('default');
+
+  private applyDisplayModelInfo(info: DisplayModelInfo, source: DisplaySource) {
+    this.deviceModel = info.model;
+    this.deviceModelName = info.name;
+    this.displayWidth = info.width;
+    this.displayHeight = info.height;
+    this.displaySource = source;
+  }
+
+  private applyDisplayGeometry(model: number, width: number, height: number, source: DisplaySource) {
+    const info = resolveDisplayModel(model);
+
+    this.deviceModel = model;
+    this.deviceModelName = info.name;
+    this.displayWidth = width || info.width;
+    this.displayHeight = height || info.height;
+    this.displaySource = source;
+  }
 
   disconnect() {
     this.resetVariables();
@@ -47,6 +114,13 @@ class BleConnectionStore {
         optionalServices: this.bleDeviceOptionalServicesIds,
         acceptAllDevices: true
       });
+
+      this.connectedDeviceName = this.bleDevice.name ?? 'Unknown device';
+
+      const inferredDisplay = inferDisplayModelFromName(this.bleDevice.name);
+      if (inferredDisplay) {
+        this.applyDisplayModelInfo(inferredDisplay, 'name');
+      }
 
       // Ensure correct "this" binding on disconnect
       this.bleDevice.addEventListener('gattserverdisconnected', this.disconnect.bind(this));
@@ -150,7 +224,21 @@ class BleConnectionStore {
         return;
       }
 
-      const hex = bytesToHex(value.buffer);
+      const data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+
+      if (data.byteLength === 7 && data[0] === 0xe2 && data[1] === 0xab) {
+        const model = data[2];
+        const width = data[3] | (data[4] << 8);
+        const height = data[5] | (data[6] << 8);
+
+        this.applyDisplayGeometry(model, width, height, 'firmware');
+        logStore.addLog(
+          `[From display][RXTX]: ${this.deviceModelName} ${this.displayWidth}x${this.displayHeight}`
+        );
+        return;
+      }
+
+      const hex = bytesToHex(data);
 
       // Firmware sends 2 bytes: int16 LE (temp * 10). If no decimals, it's in steps of 10.
       if (value.byteLength === 2) {
@@ -165,6 +253,26 @@ class BleConnectionStore {
     });
 
     this.connected = true;
+    await this.queryDisplayInfo();
+  }
+
+  async queryDisplayInfo() {
+    if (!this.rxtxCharacteristic) {
+      logStore.addLog('Service unavailable. Is Bluetooth connected?');
+      return;
+    }
+
+    logStore.addLog('Querying display model...');
+    await this.sendRxTxCommand('e2ab');
+  }
+
+  async setDisplayModel(model: number) {
+    if (model !== 0) {
+      this.applyDisplayModelInfo(resolveDisplayModel(model), 'manual');
+    }
+
+    await this.sendRxTxCommand(`e0${intToHex(model, 1)}`);
+    await this.queryDisplayInfo();
   }
 
   async sendRxTxCommand(command: string) {
@@ -316,6 +424,8 @@ class BleConnectionStore {
     this.preconnected = false;
     this.firmwareUploadProgress = 0;
     this.isFlashingFirmware = false;
+    this.connectedDeviceName = '';
+    this.applyDisplayModelInfo(DEFAULT_DISPLAY_INFO, 'default');
   }
 }
 

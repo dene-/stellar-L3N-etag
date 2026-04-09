@@ -2,11 +2,18 @@
 #include "etime.h"
 #define epd_height 128
 #define epd_width 250
-#define epd_buffer_size 4000 // ((epd_height/8) * epd_width)
+#define epd_buffer_size 5000 // max buffer size across all supported panels
 
 void set_EPD_model(uint8_t model_nr);
+uint8_t get_EPD_model(void);
 void set_EPD_scene(uint8_t scene);
 void set_EPD_wait_flush();
+void EPD_detect_model(void);
+
+void epd_get_resolution(uint8_t model_nr, uint16_t *width, uint16_t *height);
+void epd_get_current_resolution(uint16_t *width, uint16_t *height);
+uint16_t epd_get_buffer_size_for_model(uint8_t model_nr);
+uint16_t epd_get_current_buffer_size(void);
 
 void init_epd(void);
 uint8_t EPD_read_temp(void);

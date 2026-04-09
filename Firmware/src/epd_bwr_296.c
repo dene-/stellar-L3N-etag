@@ -177,7 +177,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_296_Display(unsigned char *image, int size,
 
     // Set RAM Y- Address Start/End
     EPD_WriteCmd(0x45);
-    EPD_WriteData(0x28);   //0x0127-->(295+1)=296
+    EPD_WriteData(0x27);   // 0x0127 -> 296 rows (0..295)
 	EPD_WriteData(0x01);
 	EPD_WriteData(0x00);
 	EPD_WriteData(0x00);
@@ -217,7 +217,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_296_Display(unsigned char *image, int size,
 
     // Set RAM Y address
     EPD_WriteCmd(0x4F);
-    EPD_WriteData(0x28);
+    EPD_WriteData(0x27);
     EPD_WriteData(0x01);
 
     EPD_LoadImage(image, size, 0x24);
@@ -228,7 +228,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_296_Display(unsigned char *image, int size,
 
     // Set RAM Y address
     EPD_WriteCmd(0x4F);
-    EPD_WriteData(0x28);
+    EPD_WriteData(0x27);
     EPD_WriteData(0x01);
 
     EPD_WriteCmd(0x26);
@@ -300,7 +300,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_296_Display_BWR(unsigned char *image, unsig
 
     // Set RAM Y- Address Start/End
     EPD_WriteCmd(0x45);
-    EPD_WriteData(0x28);   //0x0127-->(295+1)=296
+    EPD_WriteData(0x27);   // 0x0127 -> 296 rows (0..295)
 	EPD_WriteData(0x01);
 	EPD_WriteData(0x00);
 	EPD_WriteData(0x00);
@@ -340,7 +340,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_296_Display_BWR(unsigned char *image, unsig
 
     // Set RAM Y address
     EPD_WriteCmd(0x4F);
-    EPD_WriteData(0x28);
+    EPD_WriteData(0x27);
     EPD_WriteData(0x01);
 
     EPD_LoadImage(image, size, 0x24);
@@ -351,7 +351,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_296_Display_BWR(unsigned char *image, unsig
 
     // Set RAM Y address
     EPD_WriteCmd(0x4F);
-    EPD_WriteData(0x28);
+    EPD_WriteData(0x27);
     EPD_WriteData(0x01);
 
     EPD_LoadImage(red_image, size, 0x26);

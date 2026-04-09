@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { bleConnectionStore } from '../stores/connectionStore.svelte';
+	import {
+		bleConnectionStore,
+		DISPLAY_MODEL_OPTIONS
+	} from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
 	import { bwPalette, bwrPalette, ditheringCanvasByPalette, bytesToHex } from '$lib/utils';
-	import { weatherStore } from '../stores/weatherStore.svelte';
 	import pica from 'pica';
 
 	// Helpers to build hex payloads
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
-
-	let location = $state('Barcelona');
 
 	let charByteHex = $state('ff');
 
@@ -34,6 +34,40 @@
 			}
 		};
 	}
+
+	function resizeCanvasToDisplay(targetWidth: number, targetHeight: number) {
+		if (!canvasEl) return;
+
+		if (canvasEl.width === targetWidth && canvasEl.height === targetHeight) return;
+
+		const previousImageData = originalImageData;
+		canvasEl.width = targetWidth;
+		canvasEl.height = targetHeight;
+
+		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+		if (!ctx) return;
+
+		ctx.fillStyle = '#fff';
+		ctx.fillRect(0, 0, targetWidth, targetHeight);
+
+		if (!previousImageData) return;
+
+		const sourceCanvas = document.createElement('canvas');
+		sourceCanvas.width = previousImageData.width;
+		sourceCanvas.height = previousImageData.height;
+
+		const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+		if (!sourceCtx) return;
+
+		sourceCtx.putImageData(previousImageData, 0, 0);
+		ctx.drawImage(sourceCanvas, 0, 0, previousImageData.width, previousImageData.height, 0, 0, targetWidth, targetHeight);
+		originalImageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+		applyDithering();
+	}
+
+	$effect(() => {
+		resizeCanvasToDisplay(bleConnectionStore.displayWidth, bleConnectionStore.displayHeight);
+	});
 
 	function handleImageFile(event: Event) {
 		const input = event.target as HTMLInputElement;
@@ -168,6 +202,13 @@
 					Disconnect
 				</button>
 			</div>
+			<div class="mt-3 text-sm opacity-80">
+				<div>Device: {bleConnectionStore.connectedDeviceName || 'Not connected'}</div>
+				<div>
+					Display: {bleConnectionStore.deviceModelName} ({bleConnectionStore.displayWidth}x{bleConnectionStore.displayHeight})
+					via {bleConnectionStore.displaySource}
+				</div>
+			</div>
 		</div>
 
 		<div class="collapse collapse-arrow bg-base-300 rounded-lg">
@@ -200,6 +241,31 @@
 			<div class="collapse-title text-lg font-semibold">EPD control</div>
 			<div class="collapse-content">
 				<div class="prose max-w-none p-0 flex items-start flex-col gap-3">
+					<div class="flex flex-wrap gap-3">
+						<h4 class="w-full">Display model</h4>
+						<select
+							class="select select-bordered select-primary w-60"
+							value={String(bleConnectionStore.deviceModel)}
+							onchange={(event) =>
+								bleConnectionStore.setDisplayModel(
+									Number((event.currentTarget as HTMLSelectElement).value)
+								)}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							{#each DISPLAY_MODEL_OPTIONS as option (option.model)}
+								<option value={option.model}>
+									{option.name} ({option.width}x{option.height})
+								</option>
+							{/each}
+						</select>
+						<button
+							class="btn btn-secondary"
+							onclick={() => bleConnectionStore.queryDisplayInfo()}
+							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+						>
+							Query device
+						</button>
+					</div>
 					<!-- LED flashing control (moved here) -->
 					<div class="flex flex-wrap gap-3">
 						<h4 class="w-full">LED flashing</h4>
@@ -359,10 +425,13 @@
 
 					<div class="flex flex-col gap-3">
 						<div class="self-start bg-base-100 rounded-lg p-3 w-full max-w-[500px]">
+							<div class="mb-2 text-sm text-base-content/70">
+								Canvas: {bleConnectionStore.displayWidth}x{bleConnectionStore.displayHeight}
+							</div>
 							<canvas
 								use:onCanvasReady
-								width="250"
-								height="128"
+								width={bleConnectionStore.displayWidth}
+								height={bleConnectionStore.displayHeight}
 								class="border w-full"
 								style="image-rendering: pixelated"
 							></canvas>
@@ -395,7 +464,9 @@
 								onchange={handleFirmwareFile}
 								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 								onclick={(event: Event) => {
-									event.target && ((event.target as HTMLInputElement).value = '');
+									if (event.target) {
+										(event.target as HTMLInputElement).value = '';
+									}
 								}}
 							/>
 						</fieldset>
@@ -487,7 +558,7 @@
 		<div
 			class="flex flex-grow flex-col-reverse overflow-auto text-lime-400 text-xs min-h-90 bg-black w-full rounded-lg p-3"
 		>
-			{#each logStore.logs as log}
+			{#each logStore.logs as log, index (`${index}-${log}`)}
 				<pre><code>{log}</code></pre>
 			{/each}
 		</div>

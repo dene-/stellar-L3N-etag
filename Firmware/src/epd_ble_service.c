@@ -24,6 +24,16 @@ int epd_ble_handle_write(void *p)
 	uint8_t *payload = &req->value;
 	unsigned int payload_len = req->l2capLen - 3;
 	uint8_t out_buffer[20] = {0};
+	uint16_t current_buffer_size = epd_get_current_buffer_size();
+
+	if (!current_buffer_size)
+	{
+		if (!get_EPD_model())
+		{
+			EPD_detect_model();
+		}
+		current_buffer_size = epd_get_current_buffer_size();
+	}
 
 	ASSERT_MIN_LEN(payload_len, 1);
 
@@ -39,7 +49,7 @@ int epd_ble_handle_write(void *p)
 	// Push buffer to display.
 	case 0x01:
 		ble_set_connection_speed(200);
-		EPD_Display(epd_buffer, epd_temp, epd_buffer_size, payload[1]);
+		EPD_Display(epd_buffer, epd_temp, current_buffer_size, payload[1]);
 		return 0;
 	// Set byte_pos.
 	case 0x02:
@@ -48,7 +58,7 @@ int epd_ble_handle_write(void *p)
 		return 0;
 	// Write data to image buffer.
 	case 0x03:
-		if ((payload[2] << 8 | payload[3]) + payload_len - 4 >= epd_buffer_size + 1)
+		if ((payload[2] << 8 | payload[3]) + payload_len - 4 >= current_buffer_size + 1)
 		{
 		    out_buffer[0] = 0x00;
 		    out_buffer[1] = 0x00;
