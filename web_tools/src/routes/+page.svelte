@@ -1,20 +1,32 @@
 <script lang="ts">
-	import {
-		bleConnectionStore,
-		DISPLAY_MODEL_OPTIONS
-	} from '../stores/connectionStore.svelte';
+	import { bleConnectionStore, DISPLAY_MODEL_OPTIONS } from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
 	import { bwPalette, bwrPalette, ditheringCanvasByPalette, bytesToHex } from '$lib/utils';
+	import {
+		getContainSize,
+		getCoverCropRect,
+		pixelArtResize,
+		rotateSourceToCanvas,
+		type ImageFitMode,
+		type ImageRotation
+	} from '$lib/pixel-art-resize';
 	import pica from 'pica';
 
 	// Helpers to build hex payloads
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
+	const imageResizer = pica();
 
 	let charByteHex = $state('ff');
 
 	let ditheringMode: string = $state('bwr_Atkinson');
 	let serpentine = $state(false);
+	let usePixelArtResize = $state(false);
+	let imageFitMode: ImageFitMode = $state('contain');
+	let imageRotation: ImageRotation = $state(0);
+	let coverPanX = $state(0);
+	let coverPanY = $state(0);
 	let canvasEl: HTMLCanvasElement | null = null;
+	let sourceImage: HTMLImageElement | null = null;
 	let originalImageData: ImageData | null = null;
 
 	let firmwareArray = $state('');
@@ -35,7 +47,103 @@
 		};
 	}
 
-	function resizeCanvasToDisplay(targetWidth: number, targetHeight: number) {
+	function createWorkingCanvas(width: number, height: number) {
+		const canvas = document.createElement('canvas');
+		canvas.width = width;
+		canvas.height = height;
+		return canvas;
+	}
+
+	function createCroppedCanvas(
+		source: HTMLCanvasElement,
+		x: number,
+		y: number,
+		width: number,
+		height: number
+	) {
+		const canvas = createWorkingCanvas(width, height);
+		const ctx = canvas.getContext('2d', { willReadFrequently: true });
+		if (!ctx) {
+			throw new Error('Canvas 2D context not available');
+		}
+
+		ctx.drawImage(source, x, y, width, height, 0, 0, width, height);
+		return canvas;
+	}
+
+	async function drawSourceWithResizeMode(
+		source: HTMLCanvasElement,
+		ctx: CanvasRenderingContext2D,
+		drawX: number,
+		drawY: number,
+		drawWidth: number,
+		drawHeight: number
+	) {
+		if (usePixelArtResize) {
+			const resizedImage = pixelArtResize(source, drawWidth, drawHeight);
+			ctx.putImageData(resizedImage, drawX, drawY);
+			return;
+		}
+
+		const resizedCanvas = createWorkingCanvas(drawWidth, drawHeight);
+		await imageResizer.resize(source, resizedCanvas);
+		ctx.drawImage(resizedCanvas, drawX, drawY);
+	}
+
+	async function renderSourceImage() {
+		if (!canvasEl || !sourceImage) return;
+
+		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+		if (!ctx) return;
+
+		const rotatedSource = rotateSourceToCanvas(sourceImage, imageRotation);
+
+		ctx.fillStyle = '#fff';
+		ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+
+		if (imageFitMode === 'cover') {
+			const crop = getCoverCropRect(
+				rotatedSource.width,
+				rotatedSource.height,
+				canvasEl.width,
+				canvasEl.height,
+				coverPanX,
+				coverPanY
+			);
+			const croppedSource = createCroppedCanvas(
+				rotatedSource,
+				crop.x,
+				crop.y,
+				crop.width,
+				crop.height
+			);
+			await drawSourceWithResizeMode(croppedSource, ctx, 0, 0, canvasEl.width, canvasEl.height);
+		} else if (imageFitMode === 'contain') {
+			const contained = getContainSize(
+				rotatedSource.width,
+				rotatedSource.height,
+				canvasEl.width,
+				canvasEl.height
+			);
+			const offsetX = Math.floor((canvasEl.width - contained.width) / 2);
+			const offsetY = Math.floor((canvasEl.height - contained.height) / 2);
+			await drawSourceWithResizeMode(
+				rotatedSource,
+				ctx,
+				offsetX,
+				offsetY,
+				contained.width,
+				contained.height
+			);
+		} else {
+			await drawSourceWithResizeMode(rotatedSource, ctx, 0, 0, canvasEl.width, canvasEl.height);
+		}
+
+		originalImageData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
+		await applyDithering();
+	}
+
+	async function resizeCanvasToDisplay(targetWidth: number, targetHeight: number) {
 		if (!canvasEl) return;
 
 		if (canvasEl.width === targetWidth && canvasEl.height === targetHeight) return;
@@ -50,6 +158,11 @@
 		ctx.fillStyle = '#fff';
 		ctx.fillRect(0, 0, targetWidth, targetHeight);
 
+		if (sourceImage) {
+			await renderSourceImage();
+			return;
+		}
+
 		if (!previousImageData) return;
 
 		const sourceCanvas = document.createElement('canvas');
@@ -60,13 +173,23 @@
 		if (!sourceCtx) return;
 
 		sourceCtx.putImageData(previousImageData, 0, 0);
-		ctx.drawImage(sourceCanvas, 0, 0, previousImageData.width, previousImageData.height, 0, 0, targetWidth, targetHeight);
+		ctx.drawImage(
+			sourceCanvas,
+			0,
+			0,
+			previousImageData.width,
+			previousImageData.height,
+			0,
+			0,
+			targetWidth,
+			targetHeight
+		);
 		originalImageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
-		applyDithering();
+		await applyDithering();
 	}
 
 	$effect(() => {
-		resizeCanvasToDisplay(bleConnectionStore.displayWidth, bleConnectionStore.displayHeight);
+		void resizeCanvasToDisplay(bleConnectionStore.displayWidth, bleConnectionStore.displayHeight);
 	});
 
 	function handleImageFile(event: Event) {
@@ -81,30 +204,8 @@
 
 		img.onload = async () => {
 			try {
-				const ctx = canvasEl!.getContext('2d', { willReadFrequently: true });
-
-				if (!ctx) return;
-
-				const canvasCopy = canvasEl?.cloneNode(true) as HTMLCanvasElement;
-
-				const resizedPhoto = await pica().resize(img, canvasCopy!);
-
-				ctx.clearRect(0, 0, canvasEl!.width, canvasEl!.height);
-				ctx.drawImage(
-					resizedPhoto,
-					0,
-					0,
-					resizedPhoto.width,
-					resizedPhoto.height,
-					0,
-					0,
-					canvasEl!.width,
-					canvasEl!.height
-				);
-
-				originalImageData = ctx.getImageData(0, 0, canvasEl!.width, canvasEl!.height);
-
-				applyDithering();
+				sourceImage = img;
+				await renderSourceImage();
 			} finally {
 				URL.revokeObjectURL(img.src);
 			}
@@ -138,7 +239,21 @@
 		};
 	}
 
-	function applyDithering() {
+	function handleDisplayModelChange(event: Event) {
+		const select = event.currentTarget;
+		if (!(select instanceof HTMLSelectElement)) return;
+
+		bleConnectionStore.setDisplayModel(Number(select.value));
+	}
+
+	function resetFileInputValue(event: Event) {
+		const input = event.currentTarget;
+		if (!(input instanceof HTMLInputElement)) return;
+
+		input.value = '';
+	}
+
+	async function applyDithering() {
 		if (!canvasEl) return;
 
 		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
@@ -150,9 +265,48 @@
 		const isBwr = ditheringMode.startsWith('bwr_');
 		const kern = ditheringMode.split('_')[1] || 'Atkinson';
 
-		ditheringCanvasByPalette(canvasEl, isBwr ? bwrPalette : bwPalette, kern, {
+		await ditheringCanvasByPalette(canvasEl, isBwr ? bwrPalette : bwPalette, kern, {
 			dithSerp: serpentine
 		});
+	}
+
+	async function rerenderImageWithCurrentResizeMode() {
+		if (!sourceImage) {
+			await applyDithering();
+			return;
+		}
+
+		await renderSourceImage();
+	}
+
+	function handleImageFitModeChange(event: Event) {
+		const select = event.currentTarget;
+		if (!(select instanceof HTMLSelectElement)) return;
+
+		imageFitMode = select.value as ImageFitMode;
+		void rerenderImageWithCurrentResizeMode();
+	}
+
+	function clampPanOffset(value: number) {
+		return Math.max(-1, Math.min(1, value));
+	}
+
+	function nudgeCoverCrop(deltaX: number, deltaY: number) {
+		coverPanX = clampPanOffset(coverPanX + deltaX);
+		coverPanY = clampPanOffset(coverPanY + deltaY);
+		void rerenderImageWithCurrentResizeMode();
+	}
+
+	function resetCoverCropPosition() {
+		coverPanX = 0;
+		coverPanY = 0;
+		void rerenderImageWithCurrentResizeMode();
+	}
+
+	function rotateImage(delta: 90 | -90) {
+		const nextRotation = (imageRotation + delta + 360) % 360;
+		imageRotation = nextRotation as ImageRotation;
+		void rerenderImageWithCurrentResizeMode();
 	}
 
 	async function uploadImage() {
@@ -246,10 +400,7 @@
 						<select
 							class="select select-bordered select-primary w-60"
 							value={String(bleConnectionStore.deviceModel)}
-							onchange={(event) =>
-								bleConnectionStore.setDisplayModel(
-									Number((event.currentTarget as HTMLSelectElement).value)
-								)}
+							onchange={handleDisplayModelChange}
 							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>
 							{#each DISPLAY_MODEL_OPTIONS as option (option.model)}
@@ -409,6 +560,124 @@
 						</fieldset>
 
 						<fieldset class="fieldset p-0">
+							<legend class="fieldset-legend">Fit / crop</legend>
+							<select
+								class="select select-bordered select-primary w-60"
+								value={imageFitMode}
+								onchange={handleImageFitModeChange}
+								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+							>
+								<option value="contain">Fit with padding</option>
+								<option value="cover">Fill and crop</option>
+								<option value="stretch">Stretch to display</option>
+							</select>
+						</fieldset>
+
+						<fieldset class="fieldset p-0">
+							<legend class="fieldset-legend">Crop position</legend>
+							<div class="flex flex-col gap-2">
+								<div class="grid grid-cols-3 gap-2 w-40">
+									<button
+										type="button"
+										class="btn btn-sm btn-outline"
+										disabled={!bleConnectionStore.connected ||
+											bleConnectionStore.isFlashingFirmware}
+										onclick={() => rotateImage(-90)}
+										title="Rotate left"
+									>
+										↺
+									</button>
+									<button
+										type="button"
+										class="btn btn-sm btn-outline"
+										disabled={imageFitMode !== 'cover' ||
+											!bleConnectionStore.connected ||
+											bleConnectionStore.isFlashingFirmware}
+										onclick={() => nudgeCoverCrop(0, -0.15)}
+										title="Move crop up"
+									>
+										⬆️
+									</button>
+									<button
+										type="button"
+										class="btn btn-sm btn-outline"
+										disabled={!bleConnectionStore.connected ||
+											bleConnectionStore.isFlashingFirmware}
+										onclick={() => rotateImage(90)}
+										title="Rotate right"
+									>
+										↻
+									</button>
+									<button
+										type="button"
+										class="btn btn-sm btn-outline"
+										disabled={imageFitMode !== 'cover' ||
+											!bleConnectionStore.connected ||
+											bleConnectionStore.isFlashingFirmware}
+										onclick={() => nudgeCoverCrop(-0.15, 0)}
+										title="Move crop left"
+									>
+										⬅️
+									</button>
+									<button
+										type="button"
+										class="btn btn-sm btn-outline"
+										disabled={imageFitMode !== 'cover' ||
+											!bleConnectionStore.connected ||
+											bleConnectionStore.isFlashingFirmware}
+										onclick={resetCoverCropPosition}
+										title="Center crop"
+									>
+										🎯
+									</button>
+									<button
+										type="button"
+										class="btn btn-sm btn-outline"
+										disabled={imageFitMode !== 'cover' ||
+											!bleConnectionStore.connected ||
+											bleConnectionStore.isFlashingFirmware}
+										onclick={() => nudgeCoverCrop(0.15, 0)}
+										title="Move crop right"
+									>
+										➡️
+									</button>
+									<div class="flex items-center justify-center text-xs text-base-content/70">
+										{imageRotation}°
+									</div>
+									<button
+										type="button"
+										class="btn btn-sm btn-outline"
+										disabled={imageFitMode !== 'cover' ||
+											!bleConnectionStore.connected ||
+											bleConnectionStore.isFlashingFirmware}
+										onclick={() => nudgeCoverCrop(0, 0.15)}
+										title="Move crop down"
+									>
+										⬇️
+									</button>
+									<div></div>
+								</div>
+								<div class="text-xs text-base-content/70">
+									X: {Math.round(coverPanX * 100)}% Y: {Math.round(coverPanY * 100)}%
+								</div>
+							</div>
+						</fieldset>
+
+						<fieldset class="fieldset p-0">
+							<legend class="fieldset-legend">Pixel-art resize</legend>
+							<label class="cursor-pointer inline-flex items-center gap-2">
+								<input
+									type="checkbox"
+									class="checkbox checkbox-primary"
+									bind:checked={usePixelArtResize}
+									disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+									onchange={rerenderImageWithCurrentResizeMode}
+								/>
+								<span class="label-text">Use PixelOE-style contrast resize</span>
+							</label>
+						</fieldset>
+
+						<fieldset class="fieldset p-0">
 							<legend class="fieldset-legend">Serpentine</legend>
 							<label class="cursor-pointer inline-flex items-center gap-2">
 								<input
@@ -416,7 +685,7 @@
 									class="checkbox checkbox-primary"
 									bind:checked={serpentine}
 									disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-									onchange={applyDithering}
+									onchange={() => void applyDithering()}
 								/>
 								<span class="label-text">Enable</span>
 							</label>
@@ -463,11 +732,7 @@
 								accept=".bin"
 								onchange={handleFirmwareFile}
 								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-								onclick={(event: Event) => {
-									if (event.target) {
-										(event.target as HTMLInputElement).value = '';
-									}
-								}}
+								onclick={resetFileInputValue}
 							/>
 						</fieldset>
 					</div>
