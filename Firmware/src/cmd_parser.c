@@ -5,6 +5,7 @@
 #include "stack/ble/ble.h"
 #include "vendor/common/blt_common.h"
 
+#include "ble.h"
 #include "etime.h"
 #include "flash.h"
 #include "image_store.h"
@@ -23,9 +24,10 @@ static void notify_rxtx_status(uint8_t command, uint8_t subcommand, uint8_t stat
 
 _attribute_ram_code_ void cmd_parser(void *p)
 {
-	rf_packet_att_data_t *req = (rf_packet_att_data_t *)p;
-	uint8_t inData = req->dat[0];
-	uint8_t payload_len = req->l2capLen - 3;
+	rf_packet_att_write_t *req = (rf_packet_att_write_t *)p;
+	uint8_t *payload = &req->value;
+	uint8_t inData = payload[0];
+	unsigned int payload_len = req->l2capLen - 3;
 	if (inData == 0xFF)
 	{
 		gpio_set_func(testPin, AS_GPIO);
@@ -50,26 +52,26 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xB1)
 	{
-		epd_display_char(req->dat[1]);
+		epd_display_char(payload[1]);
 	}
 	else if (inData == 0xFE)
 	{
-		settings.advertising_interval = req->dat[1]; // Set advertising interval with second byte, value*10second / 0=main_delay
+		settings.advertising_interval = payload[1]; // Set advertising interval with second byte, value*10second / 0=main_delay
 	}
 	else if (inData == 0xFA)
 	{
-		settings.temp_offset = req->dat[1]; // Set temp offset, -12,5 - +12,5 °C
+		settings.temp_offset = payload[1]; // Set temp offset, -12,5 - +12,5 °C
 	}
 	else if (inData == 0xFC)
 	{
-		settings.temp_alarm_point = req->dat[1]; // Set temp alarm point value divided by 10 for temp in °C
+		settings.temp_alarm_point = payload[1]; // Set temp alarm point value divided by 10 for temp in °C
 		if (settings.temp_alarm_point == 0)
 			settings.temp_alarm_point = 1;
 	}
 	else if (inData == 0xDD)
 	{ // Set time
-		uint32_t new_time = (req->dat[1] << 24) + (req->dat[2] << 16) + (req->dat[3] << 8) + (req->dat[4] & 0xff);
-		set_time(new_time, (req->dat[5] << 8) + req->dat[6], req->dat[7], req->dat[8], req->dat[9]);
+		uint32_t new_time = (payload[1] << 24) + (payload[2] << 16) + (payload[3] << 8) + (payload[4] & 0xff);
+		set_time(new_time, (payload[5] << 8) + payload[6], payload[7], payload[8], payload[9]);
 	}
 	else if (inData == 0xDE)
 	{ // Save settings in flash to default
@@ -82,23 +84,23 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xE0)
 	{ // force set an EPD model, if it wasnt detect automatically correct
-		set_EPD_model(req->dat[1]);
+		set_EPD_model(payload[1]);
 	}
 	else if (inData == 0xE1)
 	{ // force set an EPD scene
-		set_EPD_scene(req->dat[1]);
+		set_EPD_scene(payload[1]);
 	}
 	else if (inData == 0xE2)
 	{
 		// If second byte is 0xAA treat as a temperature query over RxTx
-		if (req->dat[1] == 0xAA)
+		if (payload[1] == 0xAA)
 		{
 			// Package epd_temperature as signed int16 little-endian *10 for one decimal resolution
 			int16_t t10 = (int16_t)epd_temperature * 10;
 			u8 buf[2] = {(u8)(t10 & 0xFF), (u8)((t10 >> 8) & 0xFF)};
 			bls_att_pushNotifyData(RxTx_CMD_OUT_DP_H, buf, 2);
 		}
-		else if (req->dat[1] == 0xAB)
+		else if (payload[1] == 0xAB)
 		{
 			uint16_t width = 0;
 			uint16_t height = 0;
@@ -130,11 +132,11 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xE3)
 	{ // Toggle LED flashing enable: E3 00 -> disable, E3 01 -> enable
-		if (req->dat[1] == 0x00)
+		if (payload[1] == 0x00)
 		{
 			settings.led_flashing_enabled = 0;
 		}
-		else if (req->dat[1] == 0x01)
+		else if (payload[1] == 0x01)
 		{
 			settings.led_flashing_enabled = 1;
 		}
@@ -143,18 +145,18 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xE4)
 	{ // LED rainbow mode: E4 00 -> disable, E4 01 -> enable
-		if (req->dat[1] == 0x00)
+		if (payload[1] == 0x00)
 		{
 			led_set_rainbow_enabled(0);
 		}
-		else if (req->dat[1] == 0x01)
+		else if (payload[1] == 0x01)
 		{
 			led_set_rainbow_enabled(1);
 		}
 	}
 	else if (inData == 0xE5)
 	{
-		switch (req->dat[1])
+		switch (payload[1])
 		{
 		case 0x00:
 			if (payload_len < 6)
@@ -163,7 +165,9 @@ _attribute_ram_code_ void cmd_parser(void *p)
 				return;
 			}
 
-			if (image_store_prepare(req->dat[2], req->dat[4] | (req->dat[5] << 8), req->dat[3]))
+			ble_set_connection_speed(6);
+
+			if (image_store_prepare(payload[2], payload[4] | (payload[5] << 8), payload[3]))
 			{
 				notify_rxtx_status(0xE5, 0x00, 0x01);
 			}
@@ -179,7 +183,7 @@ _attribute_ram_code_ void cmd_parser(void *p)
 				return;
 			}
 
-			if (!image_store_write_chunk(req->dat[2], req->dat[3], req->dat[4] | (req->dat[5] << 8), &req->dat[6], payload_len - 6))
+			if (!image_store_write_chunk(payload[2], payload[3], payload[4] | (payload[5] << 8), &payload[6], payload_len - 6))
 			{
 				notify_rxtx_status(0xE5, 0x01, 0x00);
 			}
@@ -194,10 +198,12 @@ _attribute_ram_code_ void cmd_parser(void *p)
 			{
 				notify_rxtx_status(0xE5, 0x02, 0x00);
 			}
+			ble_set_connection_speed(200);
 			break;
 		case 0x03:
 			image_store_clear();
 			set_EPD_scene(0);
+			ble_set_connection_speed(200);
 			notify_rxtx_status(0xE5, 0x03, 0x01);
 			break;
 		default:

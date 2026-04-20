@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { bleConnectionStore, DISPLAY_MODEL_OPTIONS } from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
-	import { bwPalette, bwrPalette, ditheringCanvasByPalette, bytesToHex } from '$lib/utils';
+	import {
+		bwPalette,
+		bwrPalette,
+		canvas2bytes,
+		ditheringCanvasByPalette,
+		bytesToHex
+	} from '$lib/utils';
 	import {
 		getContainSize,
 		getCoverCropRect,

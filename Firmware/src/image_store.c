@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "tl_common.h"
+#include "app_config.h"
 
 #include "epd.h"
 #include "flash.h"
@@ -29,9 +30,9 @@ typedef struct
   uint8_t checksum;
 } image_store_header_t;
 
-static image_store_header_t image_store_header;
-static uint8_t image_store_ready = 0;
-static uint8_t image_store_display_pending = 0;
+static RAM image_store_header_t image_store_header;
+static RAM uint8_t image_store_ready = 0;
+static RAM uint8_t image_store_display_pending = 0;
 
 static uint8_t image_store_checksum(const image_store_header_t *header)
 {

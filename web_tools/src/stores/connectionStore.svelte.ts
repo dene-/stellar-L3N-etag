@@ -355,7 +355,7 @@ class BleConnectionStore {
 		const planeSize = images[0].black.length;
 		const totalBytes = planeSize * 2 * images.length;
 		const uploadModel = this.deviceModel || DEFAULT_DISPLAY_INFO.model;
-		const chunkSize = 200;
+		const chunkSize = 240;
 		const slideshowInterval = images.length > 1 ? intervalSeconds : 0;
 
 		if (totalBytes > FLASH_SLIDESHOW_CAPACITY_BYTES) {
@@ -369,8 +369,22 @@ class BleConnectionStore {
 		}
 
 		this.isFlashingFirmware = true;
+		let chunkErrors = 0;
+
+		// Temporarily listen for E5 error notifications during upload
+		const errorListener = (event: Event) => {
+			const char = event.target as BluetoothRemoteGATTCharacteristic;
+			const v = char.value;
+			if (!v || v.byteLength < 3) return;
+			const d = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+			if (d[0] === 0xe5 && d[2] === 0x00) {
+				chunkErrors++;
+			}
+		};
+		this.rxtxCharacteristic.addEventListener('characteristicvaluechanged', errorListener);
 
 		try {
+			const start = Date.now();
 			logStore.addLog(`Preparing persistent upload for ${images.length} image(s)...`);
 			await this.rxtxCharacteristic.writeValueWithResponse(
 				new Uint8Array([
@@ -383,9 +397,13 @@ class BleConnectionStore {
 				])
 			);
 
-			for (const [index, image] of images.entries()) {
-				logStore.addLog(`Uploading ${image.name} (${index + 1}/${images.length})...`);
+			// Wait for flash erase and BLE connection speed change
+			await new Promise((r) => setTimeout(r, 500));
 
+			const totalChunks = images.length * 2 * Math.ceil(planeSize / chunkSize);
+			let chunksDone = 0;
+
+			for (const [index, image] of images.entries()) {
 				for (const [plane, buffer] of [image.black, image.red].entries()) {
 					for (let offset = 0; offset < buffer.length; offset += chunkSize) {
 						const chunk = buffer.slice(offset, offset + chunkSize);
@@ -400,17 +418,30 @@ class BleConnectionStore {
 						packet.set(chunk, 6);
 
 						await this.rxtxCharacteristic.writeValueWithResponse(packet);
+						chunksDone++;
 					}
 				}
+				logStore.addLog(
+					`Image ${index + 1}/${images.length} sent (${Math.round((chunksDone / totalChunks) * 100)}%)`
+				);
 			}
 
 			await this.rxtxCharacteristic.writeValueWithResponse(new Uint8Array([0xe5, 0x02]));
-			logStore.addLog(
-				images.length > 1
-					? `Slideshow uploaded. Interval: ${slideshowInterval}s`
-					: 'Photo uploaded in persistent single-photo mode.'
-			);
+			const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+
+			if (chunkErrors > 0) {
+				logStore.addLog(
+					`Upload finished with ${chunkErrors} chunk error(s) in ${elapsed}s. Display may not update correctly.`
+				);
+			} else {
+				logStore.addLog(
+					images.length > 1
+						? `Slideshow uploaded in ${elapsed}s. Interval: ${slideshowInterval}s`
+						: `Photo uploaded in ${elapsed}s (persistent single-photo mode).`
+				);
+			}
 		} finally {
+			this.rxtxCharacteristic.removeEventListener('characteristicvaluechanged', errorListener);
 			this.isFlashingFirmware = false;
 		}
 	}
