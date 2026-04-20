@@ -2,7 +2,7 @@
 #include "etime.h"
 #define epd_height 128
 #define epd_width 250
-#define epd_buffer_size 5000 // max buffer size across all supported panels
+#define epd_buffer_size 4736 // max buffer size: 296*128/8 = 4736
 
 void set_EPD_model(uint8_t model_nr);
 uint8_t get_EPD_model(void);
@@ -16,7 +16,7 @@ uint16_t epd_get_buffer_size_for_model(uint8_t model_nr);
 uint16_t epd_get_current_buffer_size(void);
 
 void init_epd(void);
-uint8_t EPD_read_temp(void);
+int8_t EPD_read_temp(void);
 
 void EPD_Display_start(uint8_t full_or_partial);
 void EPD_Display_byte(uint8_t data);
@@ -24,14 +24,14 @@ void EPD_Display_buffer(unsigned char *image, int size);
 void EPD_Display_color_change();
 void EPD_Display_end();
 
-void EPD_Display(unsigned char *image, unsigned char * red_image, int size, uint8_t full_or_partial);
+void EPD_Display(unsigned char *image, unsigned char *red_image, int size, uint8_t full_or_partial);
 void epd_display_tiff(uint8_t *pData, int iSize);
 void epd_set_sleep(void);
 uint8_t epd_state_handler(void);
 void epd_display_char(uint8_t data);
 void epd_clear(void);
 
-void update_time_scene(struct date_time _time, uint16_t battery_mv, int16_t temperature, void (*scene)(struct date_time, uint16_t, int16_t,  uint8_t));
+void update_time_scene(struct date_time _time, uint16_t battery_mv, int16_t temperature, void (*scene)(struct date_time, uint16_t, int16_t, uint8_t));
 void epd_update(struct date_time _time, uint16_t battery_mv, int16_t temperature);
 
 void epd_display(struct date_time _time, uint16_t battery_mv, int16_t temperature, uint8_t full_or_partial);

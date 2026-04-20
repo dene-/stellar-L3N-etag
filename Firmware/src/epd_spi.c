@@ -109,11 +109,11 @@ _attribute_ram_code_ void EPD_CheckStatus(int max_ms)
     WaitMs(1);
     while (EPD_IS_BUSY())
     {
-        if (clock_time() - timeout_start >= timeout_ticks) {
-            puts("Busy timeout\r\n");
-             return; // Here we had a timeout 
+        if (clock_time() - timeout_start >= timeout_ticks)
+        {
+            uart_puts("Busy timeout\r\n");
+            return; // Here we had a timeout
         }
-
     }
 }
 
@@ -141,7 +141,7 @@ _attribute_ram_code_ void EPD_send_lut(uint8_t lut[], int len)
 _attribute_ram_code_ void EPD_send_empty_lut(uint8_t lut, int len)
 {
     EPD_WriteCmd(lut);
-    for (int r = 0; r <= len; r++)
+    for (int r = 0; r < len; r++)
         EPD_WriteData(0x00);
 }
 

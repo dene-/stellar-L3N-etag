@@ -15,6 +15,10 @@
 		type PhotoItem
 	} from '$lib/photo-utils';
 
+	let maxImages = $derived(
+		computeMaxImageCount(bleConnectionStore.displayWidth, bleConnectionStore.displayHeight)
+	);
+
 	let ditheringMode: string = $state('bwr_Atkinson');
 	let serpentine = $state(false);
 	let photoItems = $state<PhotoItem[]>([]);
@@ -146,25 +150,32 @@
 			bleConnectionStore.displayHeight
 		);
 		if (photoItems.length > maxImageCount) {
-			alert(`Too many photos for device flash. Maximum for this display is ${maxImageCount}.`);
+			logStore.addLog(
+				`Too many photos for device flash. Maximum for this display is ${maxImageCount}.`
+			);
 			return;
 		}
-		const dithering = getDitheringOptions();
-		const renderedPhotos = [];
-		for (const photo of photoItems) {
-			renderedPhotos.push(
-				await renderAndBuildBuffers(
-					photo,
-					bleConnectionStore.displayWidth,
-					bleConnectionStore.displayHeight,
-					dithering
-				)
+		try {
+			const dithering = getDitheringOptions();
+			const renderedPhotos = [];
+			for (const photo of photoItems) {
+				renderedPhotos.push(
+					await renderAndBuildBuffers(
+						photo,
+						bleConnectionStore.displayWidth,
+						bleConnectionStore.displayHeight,
+						dithering
+					)
+				);
+			}
+			await bleConnectionStore.uploadImageSet(
+				renderedPhotos,
+				photoItems.length > 1 ? slideshowIntervalSeconds : 0
 			);
+		} catch (error) {
+			console.error(error);
+			logStore.addLog('Upload error: ' + (error instanceof Error ? error.message : String(error)));
 		}
-		await bleConnectionStore.uploadImageSet(
-			renderedPhotos,
-			photoItems.length > 1 ? slideshowIntervalSeconds : 0
-		);
 	}
 </script>
 
@@ -184,6 +195,9 @@
 						onchange={handleImageFile}
 						disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 					/>
+					<div class="text-xs text-base-content/70 mt-1">
+						Up to {maxImages} images for this display
+					</div>
 				</fieldset>
 
 				{#if photoItems.length > 1}
@@ -192,6 +206,7 @@
 						<input
 							type="number"
 							min="1"
+							max="65535"
 							class="input input-bordered input-primary w-40"
 							bind:value={slideshowIntervalSeconds}
 							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
@@ -376,6 +391,18 @@
 						style="image-rendering: pixelated"
 					></canvas>
 				</div>
+				{#if bleConnectionStore.isUploadingImages}
+					<div class="flex gap-3 items-center w-full max-w-[500px]">
+						<progress
+							class="progress progress-primary w-full h-4 rounded-lg"
+							value={bleConnectionStore.imageUploadProgress}
+							max="100"
+						></progress>
+						<div class="text-sm whitespace-nowrap">
+							{Math.ceil(bleConnectionStore.imageUploadProgress)}%
+						</div>
+					</div>
+				{/if}
 				<button
 					disabled={!bleConnectionStore.connected ||
 						bleConnectionStore.isFlashingFirmware ||

@@ -153,7 +153,12 @@
 					/>
 					<button
 						class="btn btn-primary join-item"
-						onclick={() => bleConnectionStore.sendRxTxCommand('b1' + (charByteHex || '00'))}
+						onclick={() => {
+							const val = (charByteHex || '00').slice(0, 2);
+							if (/^[0-9a-fA-F]{2}$/.test(val)) {
+								bleConnectionStore.sendRxTxCommand('b1' + val);
+							}
+						}}
 						disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 						>Draw</button
 					>

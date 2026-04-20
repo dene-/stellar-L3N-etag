@@ -12,7 +12,8 @@
 #include "led.h"
 
 extern settings_struct settings;
-extern uint8_t epd_temperature; // last measured EPD temperature (°C)
+extern int8_t epd_temperature; // last measured EPD temperature (°C)
+static uint8_t settings_dirty = 0;
 
 #define testPin GPIO_PD3
 
@@ -28,48 +29,49 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	uint8_t *payload = &req->value;
 	uint8_t inData = payload[0];
 	unsigned int payload_len = req->l2capLen - 3;
-	if (inData == 0xFF)
+	if (inData == 0x0F)
 	{
-		gpio_set_func(testPin, AS_GPIO);
-		gpio_set_output_en(testPin, 1);
-		gpio_set_input_en(testPin, 0);
-		sleep_ms(500);
-	}
-	else if (inData == 0xCC)
-	{
-		gpio_set_func(GPIO_PD2, AS_GPIO);
-		gpio_set_output_en(GPIO_PD2, 1);
-		gpio_set_input_en(GPIO_PD2, 0);
-		sleep_ms(500);
-	}
-	else if (inData == 0x0F)
-	{
-		settings.advertising_temp_C_or_F = true; // Advertising Temp in F
+		settings.advertising_temp_C_or_F = true;
+		settings_dirty = 1;
 	}
 	else if (inData == 0x0C)
 	{
-		settings.advertising_temp_C_or_F = false; // Advertising Temp in C
+		settings.advertising_temp_C_or_F = false;
+		settings_dirty = 1;
 	}
 	else if (inData == 0xB1)
 	{
+		if (payload_len < 2)
+			return;
 		epd_display_char(payload[1]);
 	}
 	else if (inData == 0xFE)
 	{
-		settings.advertising_interval = payload[1]; // Set advertising interval with second byte, value*10second / 0=main_delay
+		if (payload_len < 2)
+			return;
+		settings.advertising_interval = payload[1];
+		settings_dirty = 1;
 	}
 	else if (inData == 0xFA)
 	{
-		settings.temp_offset = payload[1]; // Set temp offset, -12,5 - +12,5 °C
+		if (payload_len < 2)
+			return;
+		settings.temp_offset = payload[1];
+		settings_dirty = 1;
 	}
 	else if (inData == 0xFC)
 	{
-		settings.temp_alarm_point = payload[1]; // Set temp alarm point value divided by 10 for temp in °C
+		if (payload_len < 2)
+			return;
+		settings.temp_alarm_point = payload[1];
 		if (settings.temp_alarm_point == 0)
 			settings.temp_alarm_point = 1;
+		settings_dirty = 1;
 	}
 	else if (inData == 0xDD)
 	{ // Set time
+		if (payload_len < 10)
+			return;
 		uint32_t new_time = (payload[1] << 24) + (payload[2] << 16) + (payload[3] << 8) + (payload[4] & 0xff);
 		set_time(new_time, (payload[5] << 8) + payload[6], payload[7], payload[8], payload[9]);
 	}
@@ -80,18 +82,25 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xDF)
 	{ // Save current settings in flash
+		settings_dirty = 0;
 		save_settings_to_flash();
 	}
 	else if (inData == 0xE0)
 	{ // force set an EPD model, if it wasnt detect automatically correct
+		if (payload_len < 2 || payload[1] > 5)
+			return;
 		set_EPD_model(payload[1]);
 	}
 	else if (inData == 0xE1)
 	{ // force set an EPD scene
+		if (payload_len < 2 || payload[1] > 3)
+			return;
 		set_EPD_scene(payload[1]);
 	}
 	else if (inData == 0xE2)
 	{
+		if (payload_len < 2)
+			return;
 		// If second byte is 0xAA treat as a temperature query over RxTx
 		if (payload[1] == 0xAA)
 		{
@@ -132,6 +141,8 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xE3)
 	{ // Toggle LED flashing enable: E3 00 -> disable, E3 01 -> enable
+		if (payload_len < 2)
+			return;
 		if (payload[1] == 0x00)
 		{
 			settings.led_flashing_enabled = 0;
@@ -140,11 +151,12 @@ _attribute_ram_code_ void cmd_parser(void *p)
 		{
 			settings.led_flashing_enabled = 1;
 		}
-		// Optionally persist immediately
-		save_settings_to_flash();
+		settings_dirty = 1;
 	}
 	else if (inData == 0xE4)
 	{ // LED rainbow mode: E4 00 -> disable, E4 01 -> enable
+		if (payload_len < 2)
+			return;
 		if (payload[1] == 0x00)
 		{
 			led_set_rainbow_enabled(0);
@@ -209,5 +221,14 @@ _attribute_ram_code_ void cmd_parser(void *p)
 		default:
 			break;
 		}
+	}
+}
+
+void cmd_parser_flush_settings(void)
+{
+	if (settings_dirty)
+	{
+		settings_dirty = 0;
+		save_settings_to_flash();
 	}
 }

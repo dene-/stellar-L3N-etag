@@ -1,6 +1,7 @@
 // Declare globals that may be provided elsewhere
 import { logStore } from './logStore.svelte';
-import { intToHex, canvas2bytes, bytesToHex, decimalToHex, hexToBytes } from '$lib/utils';
+import { intToHex, canvas2bytes, bytesToHex, hexToBytes } from '$lib/utils';
+import { FLASH_IMAGE_STORAGE_BYTES } from '$lib/photo-utils';
 
 type DisplaySource = 'default' | 'firmware' | 'manual' | 'name';
 
@@ -28,7 +29,6 @@ export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
 
 const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.model, info]));
 const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(2)!;
-const FLASH_SLIDESHOW_CAPACITY_BYTES = 0x37000;
 
 function resolveDisplayModel(model: number): DisplayModelInfo {
 	return DISPLAY_MODEL_MAP.get(model) ?? DEFAULT_DISPLAY_INFO;
@@ -61,6 +61,7 @@ class BleConnectionStore {
 	private epdCharacteristic: BluetoothRemoteGATTCharacteristic | null = $state(null);
 	private writeService: BluetoothRemoteGATTService | null = $state(null);
 	private writeCharacteristic: BluetoothRemoteGATTCharacteristic | null = $state(null);
+	private suppressE5Notifications = false;
 
 	private bleDeviceOptionalServicesIds: string[] = [
 		'0000221f-0000-1000-8000-00805f9b34fb',
@@ -77,7 +78,9 @@ class BleConnectionStore {
 	preconnected = $state(false);
 	connected = $state(false);
 	firmwareUploadProgress = $state(0);
+	imageUploadProgress = $state(0);
 	isFlashingFirmware = $state(false);
+	isUploadingImages = $state(false);
 	connectedDeviceName = $state('');
 	deviceModel = $state(DEFAULT_DISPLAY_INFO.model);
 	deviceModelName = $state(DEFAULT_DISPLAY_INFO.name);
@@ -238,6 +241,11 @@ class BleConnectionStore {
 
 			const data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
 
+			// Suppress E5 notifications during image upload (handled by upload listener)
+			if (this.suppressE5Notifications && data[0] === 0xe5) {
+				return;
+			}
+
 			if (data.byteLength === 7 && data[0] === 0xe2 && data[1] === 0xab) {
 				const model = data[2];
 				const width = data[3] | (data[4] << 8);
@@ -310,23 +318,28 @@ class BleConnectionStore {
 		}
 	}
 
-	// Send a hex string buffer in chunks to the EPD characteristic in either BW or BWR mode
-	async sendBufferData(valueHex: string, type: 'bw' | 'bwr') {
+	// Send a Uint8Array buffer in chunks to the EPD characteristic in either BW or BWR mode
+	async sendBufferData(data: Uint8Array, type: 'bw' | 'bwr') {
 		if (!this.epdCharacteristic) {
 			logStore.addLog('Service unavailable. Is Bluetooth connected?');
 			return;
 		}
 
-		const code = type === 'bwr' ? '00' : 'ff';
-		const step = 480; // hex chars per chunk (240 bytes)
+		const code = type === 'bwr' ? 0x00 : 0xff;
+		const chunkSize = 240; // bytes per chunk
 		let partIndex = 0;
-		for (let i = 0; i < valueHex.length; i += step) {
+		for (let offset = 0; offset < data.length; offset += chunkSize) {
 			logStore.addLog(
-				`Sending block ${partIndex + 1}. Size: ${step / 2 + 4} bytes. Offset: ${i / 2}`
+				`Sending block ${partIndex + 1}. Size: ${Math.min(chunkSize, data.length - offset) + 4} bytes. Offset: ${offset}`
 			);
-			const chunk = valueHex.substring(i, i + step);
-			const pkt = '03' + code + intToHex(i / 2, 2) + chunk;
-			await this.sendEpdCommand(pkt);
+			const chunk = data.subarray(offset, offset + chunkSize);
+			const pkt = new Uint8Array(4 + chunk.length);
+			pkt[0] = 0x03;
+			pkt[1] = code;
+			pkt[2] = (offset >> 8) & 0xff;
+			pkt[3] = offset & 0xff;
+			pkt.set(chunk, 4);
+			await this.epdCharacteristic.writeValueWithResponse(pkt);
 			partIndex += 1;
 		}
 	}
@@ -339,8 +352,8 @@ class BleConnectionStore {
 
 		const bw = canvas2bytes(canvas, 'bw');
 		const bwr = canvas2bytes(canvas, 'bwr');
-		await this.sendBufferData(bytesToHex(new Uint8Array(bw).buffer), 'bw');
-		await this.sendBufferData(bytesToHex(new Uint8Array(bwr).buffer), 'bwr');
+		await this.sendBufferData(bw, 'bw');
+		await this.sendBufferData(bwr, 'bwr');
 
 		await this.sendEpdCommand('0101');
 		logStore.addLog(`Refresh done, took ${((Date.now() - start) / 1000).toFixed(2)}s`);
@@ -363,7 +376,7 @@ class BleConnectionStore {
 		const chunkSize = 240;
 		const slideshowInterval = images.length > 1 ? intervalSeconds : 0;
 
-		if (totalBytes > FLASH_SLIDESHOW_CAPACITY_BYTES) {
+		if (totalBytes > FLASH_IMAGE_STORAGE_BYTES) {
 			throw new Error('Selected images exceed the MCU flash space reserved for photos.');
 		}
 
@@ -374,23 +387,33 @@ class BleConnectionStore {
 		}
 
 		this.isFlashingFirmware = true;
-		let chunkErrors = 0;
+		this.isUploadingImages = true;
+		this.imageUploadProgress = 0;
+		this.suppressE5Notifications = true;
+		let uploadAborted = false;
 
-		// Temporarily listen for E5 error notifications during upload
-		const errorListener = (event: Event) => {
+		// Listen for E5 notifications during upload
+		const notificationListener = (event: Event) => {
 			const char = event.target as BluetoothRemoteGATTCharacteristic;
 			const v = char.value;
 			if (!v || v.byteLength < 3) return;
 			const d = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
-			if (d[0] === 0xe5 && d[2] === 0x00) {
-				chunkErrors++;
+			if (d[0] !== 0xe5) return;
+
+			// E5 xx 00 = failure
+			if (d[2] === 0x00) {
+				const subcmd = d[1];
+				logStore.addLog(`Device rejected E5 sub-command 0x${subcmd.toString(16).padStart(2, '0')}`);
+				uploadAborted = true;
 			}
 		};
-		this.rxtxCharacteristic.addEventListener('characteristicvaluechanged', errorListener);
+		this.rxtxCharacteristic.addEventListener('characteristicvaluechanged', notificationListener);
 
 		try {
 			const start = Date.now();
 			logStore.addLog(`Preparing persistent upload for ${images.length} image(s)...`);
+
+			// Send E5 00 prepare command
 			await this.rxtxCharacteristic.writeValueWithResponse(
 				new Uint8Array([
 					0xe5,
@@ -402,15 +425,27 @@ class BleConnectionStore {
 				])
 			);
 
-			// Wait for flash erase and BLE connection speed change
+			// Wait for flash erase and BLE connection speed change,
+			// also allows the prepare response notification to arrive
 			await new Promise((r) => setTimeout(r, 500));
+
+			if (uploadAborted) {
+				logStore.addLog('Device rejected the prepare command. Upload aborted.');
+				return;
+			}
 
 			const totalChunks = images.length * 2 * Math.ceil(planeSize / chunkSize);
 			let chunksDone = 0;
 
 			for (const [index, image] of images.entries()) {
+				if (uploadAborted) break;
+
 				for (const [plane, buffer] of [image.black, image.red].entries()) {
+					if (uploadAborted) break;
+
 					for (let offset = 0; offset < buffer.length; offset += chunkSize) {
+						if (uploadAborted) break;
+
 						const chunk = buffer.slice(offset, offset + chunkSize);
 						const packet = new Uint8Array(6 + chunk.length);
 
@@ -424,86 +459,94 @@ class BleConnectionStore {
 
 						await this.rxtxCharacteristic.writeValueWithResponse(packet);
 						chunksDone++;
+						this.imageUploadProgress = (chunksDone / totalChunks) * 100;
 					}
 				}
 				logStore.addLog(
-					`Image ${index + 1}/${images.length} sent (${Math.round((chunksDone / totalChunks) * 100)}%)`
+					`Image ${index + 1}/${images.length} sent (${Math.round(this.imageUploadProgress)}%)`
 				);
+			}
+
+			if (uploadAborted) {
+				logStore.addLog('Upload aborted due to device error. Images may be corrupted.');
+				return;
 			}
 
 			await this.rxtxCharacteristic.writeValueWithResponse(new Uint8Array([0xe5, 0x02]));
 			const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 
-			if (chunkErrors > 0) {
-				logStore.addLog(
-					`Upload finished with ${chunkErrors} chunk error(s) in ${elapsed}s. Display may not update correctly.`
-				);
-			} else {
-				logStore.addLog(
-					images.length > 1
-						? `Slideshow uploaded in ${elapsed}s. Interval: ${slideshowInterval}s`
-						: `Photo uploaded in ${elapsed}s (persistent single-photo mode).`
-				);
-			}
+			this.imageUploadProgress = 100;
+			logStore.addLog(
+				images.length > 1
+					? `Slideshow uploaded in ${elapsed}s. Interval: ${slideshowInterval}s`
+					: `Photo uploaded in ${elapsed}s (persistent single-photo mode).`
+			);
 		} finally {
-			this.rxtxCharacteristic.removeEventListener('characteristicvaluechanged', errorListener);
+			this.rxtxCharacteristic.removeEventListener(
+				'characteristicvaluechanged',
+				notificationListener
+			);
 			this.isFlashingFirmware = false;
+			this.isUploadingImages = false;
+			this.suppressE5Notifications = false;
 		}
 	}
 
 	private async eraseFwArea() {
 		const fwAreaSize = 0x20000;
 		let fwCurAddress = 0x20000;
+		const totalSectors = fwAreaSize / 0x1000;
+		let sectorsDone = 0;
 		while (fwCurAddress < 0x20000 + fwAreaSize) {
-			const hex_address = decimalToHex(fwCurAddress, 8);
-
-			await this.writeCharacteristic?.writeValue(hexToBytes('01' + hex_address) as BufferSource);
-
+			const pkt = new Uint8Array(5);
+			pkt[0] = 0x01;
+			pkt[1] = (fwCurAddress >> 24) & 0xff;
+			pkt[2] = (fwCurAddress >> 16) & 0xff;
+			pkt[3] = (fwCurAddress >> 8) & 0xff;
+			pkt[4] = fwCurAddress & 0xff;
+			await this.writeCharacteristic?.writeValue(pkt);
 			fwCurAddress += 0x1000;
+			sectorsDone++;
+			logStore.addLog(`Erasing sector ${sectorsDone}/${totalSectors}`);
 		}
 	}
 
-	private calculateCRC(localData: string) {
-		let checkPosistion = 0;
-		let outCRC = 0;
-
-		while (checkPosistion < 0x40000) {
-			if (checkPosistion < localData.length)
-				outCRC += Number('0x' + localData.substring(checkPosistion, checkPosistion + 2));
-			else outCRC += 0xff;
-			checkPosistion += 2;
+	private calculateCRC(data: Uint8Array): number {
+		let crc = 0;
+		const totalSize = 0x20000; // OTA area size
+		for (let i = 0; i < totalSize; i++) {
+			crc += i < data.length ? data[i] : 0xff;
 		}
-
-		return decimalToHex(outCRC & 0xffff, 4);
+		return crc & 0xffff;
 	}
 
-	private async sendPart(address: number, data: string) {
-		const hex_address = decimalToHex(address, 8);
-		const part_len = 480;
-
-		while (data.length) {
-			let cur_part_len = part_len;
-
-			if (data.length < part_len) {
-				cur_part_len = data.length;
-			}
-
-			const data_part = data.substring(0, cur_part_len);
-			data = data.substring(cur_part_len);
-
-			await this.writeCharacteristic?.writeValue(hexToBytes('03' + data_part) as BufferSource);
+	private async sendPart(address: number, data: Uint8Array) {
+		const chunkSize = 240;
+		for (let offset = 0; offset < data.length; offset += chunkSize) {
+			const chunk = data.subarray(offset, offset + chunkSize);
+			const pkt = new Uint8Array(1 + chunk.length);
+			pkt[0] = 0x03;
+			pkt.set(chunk, 1);
+			await this.writeCharacteristic?.writeValue(pkt);
 		}
-		await this.writeCharacteristic?.writeValue(hexToBytes('02' + hex_address) as BufferSource);
+
+		// Commit this page to flash
+		const commitPkt = new Uint8Array(5);
+		commitPkt[0] = 0x02;
+		commitPkt[1] = (address >> 24) & 0xff;
+		commitPkt[2] = (address >> 16) & 0xff;
+		commitPkt[3] = (address >> 8) & 0xff;
+		commitPkt[4] = address & 0xff;
+		await this.writeCharacteristic?.writeValue(commitPkt);
 
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 
-	async flashFirmware(address: number, data: string): Promise<void> {
-		const startTime = new Date().getTime();
-		const part_len = 0x200;
-		const inCRC = this.calculateCRC(data);
-		const totalDataLength = data.length;
-		let addressOffset = 0;
+	async flashFirmware(address: number, data: Uint8Array): Promise<void> {
+		const startTime = Date.now();
+		const pageSize = 0x100; // 256 bytes per flash page
+		const crc = this.calculateCRC(data);
+		const crcHex = crc.toString(16).padStart(4, '0');
 
 		this.firmwareUploadProgress = 0;
 		this.isFlashingFirmware = true;
@@ -512,28 +555,18 @@ class BleConnectionStore {
 
 		logStore.addLog('Flashing firmware... wait a little.');
 
-		while (data.length) {
-			let cur_part_len = part_len;
-
-			if (data.length < part_len) {
-				cur_part_len = data.length;
-			}
-
-			const data_part = data.substring(0, cur_part_len);
-
-			data = data.substring(cur_part_len);
-			await this.sendPart(address + addressOffset, data_part);
-			addressOffset += cur_part_len / 2;
-
-			this.firmwareUploadProgress = (addressOffset / (totalDataLength / 2)) * 100;
+		let offset = 0;
+		while (offset < data.length) {
+			const pageData = data.subarray(offset, offset + pageSize);
+			await this.sendPart(address + offset, pageData);
+			offset += pageData.length;
+			this.firmwareUploadProgress = (offset / data.length) * 100;
 		}
 
-		logStore.addLog('Sending final flash: ' + '07C001CEED' + inCRC);
-		logStore.addLog(
-			`Firmware flashed completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
-		);
+		logStore.addLog('Sending final flash: 07C001CEED' + crcHex);
+		logStore.addLog(`Firmware flash completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
 		this.isFlashingFirmware = false;
-		await this.writeCharacteristic?.writeValue(hexToBytes('07C001CEED' + inCRC) as BufferSource);
+		await this.writeCharacteristic?.writeValue(hexToBytes('07C001CEED' + crcHex) as BufferSource);
 	}
 
 	resetVariables() {
@@ -542,10 +575,15 @@ class BleConnectionStore {
 		this.epdCharacteristic = null;
 		this.rxtxCharacteristic = null;
 		this.rxtxService = null;
+		this.writeService = null;
+		this.writeCharacteristic = null;
 		this.connected = false;
 		this.preconnected = false;
 		this.firmwareUploadProgress = 0;
+		this.imageUploadProgress = 0;
 		this.isFlashingFirmware = false;
+		this.isUploadingImages = false;
+		this.suppressE5Notifications = false;
 		this.connectedDeviceName = '';
 		this.applyDisplayModelInfo(DEFAULT_DISPLAY_INFO, 'default');
 	}

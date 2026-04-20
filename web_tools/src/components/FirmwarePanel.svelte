@@ -1,28 +1,46 @@
 <script lang="ts">
 	import { bleConnectionStore } from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
-	import { bytesToHex } from '$lib/utils';
 
-	let firmwareArray = $state('');
+	let firmwareData: Uint8Array | null = $state(null);
+	let firmwareFileName = $state('');
+	let firmwareSize = $state(0);
 
 	function handleFirmwareFile(event: Event) {
 		const input = event.target as HTMLInputElement;
-		var reader = new FileReader();
 		if (!input.files || !input.files[0]) {
 			logStore.addLog('No file selected');
 			return;
 		}
-		reader.readAsArrayBuffer(input.files[0]);
-		let fileName = input.files[0].name;
+		const file = input.files[0];
+		if (file.size > 512 * 1024) {
+			logStore.addLog('Firmware file too large (max 512KB).');
+			firmwareData = null;
+			return;
+		}
+		const reader = new FileReader();
+		reader.readAsArrayBuffer(file);
+		const fileName = file.name;
 		reader.onload = function () {
-			firmwareArray = bytesToHex(this.result as ArrayBuffer);
-			if (firmwareArray.substring(16, 24) != '4b4e4c54') {
-				alert('Select file is no telink firmware .bin');
-				logStore.addLog('Select file is no telink firmware .bin');
-				firmwareArray = '';
+			const data = new Uint8Array(this.result as ArrayBuffer);
+			// Check Telink magic bytes at offset 8..11 (4b4e4c54 = "KNLT")
+			if (
+				data.length < 12 ||
+				data[8] !== 0x4b ||
+				data[9] !== 0x4e ||
+				data[10] !== 0x4c ||
+				data[11] !== 0x54
+			) {
+				logStore.addLog('Selected file is not a Telink firmware .bin');
+				firmwareData = null;
+				firmwareFileName = '';
+				firmwareSize = 0;
 				return;
 			}
-			logStore.addLog(`[${fileName}] selected, size: ${firmwareArray.length / 2} bytes`);
+			firmwareData = data;
+			firmwareFileName = fileName;
+			firmwareSize = data.length;
+			logStore.addLog(`[${fileName}] selected, size: ${data.length} bytes`);
 		};
 	}
 
@@ -52,12 +70,11 @@
 				</fieldset>
 			</div>
 			<div class="flex flex-col gap-3">
-				<textarea
-					name="firmware"
-					id="firmware"
-					class="textarea textarea-primary w-full resize-none focus:outline-none active:outline-none select-none pointer-events-none"
-					bind:value={firmwareArray}
-				></textarea>
+				{#if firmwareData}
+					<div class="text-sm text-base-content/70">
+						{firmwareFileName} — {firmwareSize.toLocaleString()} bytes
+					</div>
+				{/if}
 				<div class="flex gap-3 items-center">
 					<progress
 						class="progress progress-primary w-full h-6 rounded-lg"
@@ -67,9 +84,13 @@
 					<div>{Math.ceil(bleConnectionStore.firmwareUploadProgress)}%</div>
 				</div>
 				<button
-					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+					disabled={!bleConnectionStore.connected ||
+						bleConnectionStore.isFlashingFirmware ||
+						!firmwareData}
 					class="btn btn-primary self-start"
-					onclick={() => bleConnectionStore.flashFirmware(0x20000, firmwareArray)}
+					onclick={() => {
+						if (firmwareData) bleConnectionStore.flashFirmware(0x20000, firmwareData);
+					}}
 				>
 					Upload Firmware
 				</button>

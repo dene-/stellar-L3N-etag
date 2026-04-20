@@ -11,7 +11,7 @@ export type PhotoItem = {
 	usePixelArtResize: boolean;
 };
 
-const FLASH_IMAGE_STORAGE_BYTES = 0x37000;
+export const FLASH_IMAGE_STORAGE_BYTES = 0x37000;
 const IMAGE_STORE_MAX_COUNT = 23;
 
 export async function loadPhotoItem(file: File, index: number): Promise<PhotoItem> {
@@ -21,7 +21,10 @@ export async function loadPhotoItem(file: File, index: number): Promise<PhotoIte
 
 	await new Promise<void>((resolve, reject) => {
 		image.onload = () => resolve();
-		image.onerror = () => reject(new Error(`Unable to load ${file.name}`));
+		image.onerror = () => {
+			URL.revokeObjectURL(objectUrl);
+			reject(new Error(`Unable to load ${file.name}`));
+		};
 	});
 
 	return {

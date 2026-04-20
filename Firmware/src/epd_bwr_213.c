@@ -179,7 +179,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size,
     //////////////////////// This parts clears the full screen
     EPD_WriteCmd(0x10);
     int i;
-    for (i = 0; i < 8832; i++)
+    for (i = 0; i < size; i++)
     {
         EPD_WriteData(0);
     }
@@ -194,7 +194,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size,
     WaitMs(5);
 
     EPD_WriteCmd(0x13); // Display_color_change()
-    for (i = 0; i < 8832; i++)
+    for (i = 0; i < size; i++)
     {
         EPD_WriteData(0);
     }

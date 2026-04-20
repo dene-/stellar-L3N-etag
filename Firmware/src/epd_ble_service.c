@@ -10,9 +10,9 @@
 extern uint8_t epd_temp[epd_buffer_size];
 
 #define ASSERT_MIN_LEN(val, min_len) \
-	if (val < min_len)               \
-	{                                \
-		return 0;                    \
+	if (val < min_len)                 \
+	{                                  \
+		return 0;                        \
 	}
 
 extern uint8_t epd_buffer[epd_buffer_size];
@@ -41,7 +41,7 @@ int epd_ble_handle_write(void *p)
 	{
 	// Clear EPD display.
 	case 0x00:
-	    ASSERT_MIN_LEN(payload_len, 2);
+		ASSERT_MIN_LEN(payload_len, 2);
 		memset(epd_buffer, payload[1], epd_buffer_size);
 		memset(epd_temp, payload[1], epd_buffer_size);
 		ble_set_connection_speed(40);
@@ -58,17 +58,25 @@ int epd_ble_handle_write(void *p)
 		return 0;
 	// Write data to image buffer.
 	case 0x03:
-		if ((payload[2] << 8 | payload[3]) + payload_len - 4 >= current_buffer_size + 1)
+		ASSERT_MIN_LEN(payload_len, 5);
 		{
-		    out_buffer[0] = 0x00;
-		    out_buffer[1] = 0x00;
-		    bls_att_pushNotifyData(EPD_BLE_CMD_OUT_DP_H, out_buffer, 2);
-			return 0;
-		}
-		if (payload[1] == 0xff) { // BLACK bitplan
-		    memcpy(epd_buffer + (payload[2] << 8 | payload[3]), payload + 4, payload_len - 4);
-		} else { // RED bitplan
-		    memcpy(epd_temp + (payload[2] << 8 | payload[3]), payload + 4, payload_len - 4);
+			uint16_t write_offset = (uint16_t)(payload[2] << 8 | payload[3]);
+			uint16_t write_len = payload_len - 4;
+			if ((uint32_t)write_offset + write_len > current_buffer_size)
+			{
+				out_buffer[0] = 0x00;
+				out_buffer[1] = 0x00;
+				bls_att_pushNotifyData(EPD_BLE_CMD_OUT_DP_H, out_buffer, 2);
+				return 0;
+			}
+			if (payload[1] == 0xff)
+			{ // BLACK bitplan
+				memcpy(epd_buffer + write_offset, payload + 4, write_len);
+			}
+			else
+			{ // RED bitplan
+				memcpy(epd_temp + write_offset, payload + 4, write_len);
+			}
 		}
 
 		out_buffer[0] = payload_len >> 8;

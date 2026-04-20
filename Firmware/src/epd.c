@@ -24,7 +24,7 @@ extern const uint8_t ucMirror[];
 #include "font16zh.h"
 #include "font30.h"
 
-#define LOG_UART(charP) puts(charP)
+#define LOG_UART(charP) uart_puts(charP)
 
 RAM uint8_t epd_model = 0; // 0 = Undetected, 1 = BW213, 2 = BWR213_PRO, 3 = BWR154, 4 = BW213ICE, 5 = BWR290/BWR296
 const char *epd_model_string[] = {"NC", "BW213", "BWR213", "BWR154", "213ICE", "BWR290"};
@@ -38,7 +38,7 @@ RAM uint8_t minute_refresh = 100;
 
 const char *BLE_conn_string[] = {"BLE 0", "BLE 1"};
 RAM uint8_t epd_temperature_is_read = 0;
-RAM uint8_t epd_temperature = 0;
+RAM int8_t epd_temperature = 0;
 
 RAM uint8_t epd_buffer[epd_buffer_size];
 uint8_t epd_buffer_red[epd_buffer_size];
@@ -128,8 +128,8 @@ _attribute_ram_code_ void EPD_detect_model(void)
 {
     EPD_init();
     // system power
-    puts("EPD_detect_model\r\n");
-    puts("EPD_POWER_ON\r\n");
+    uart_puts("EPD_detect_model\r\n");
+    uart_puts("EPD_POWER_ON\r\n");
     EPD_POWER_ON();
 
     WaitMs(10);
@@ -161,15 +161,15 @@ _attribute_ram_code_ void EPD_detect_model(void)
         epd_model = 1;
     }
 
-    puts("Detected :");
-    puts(epd_model_string[epd_model]);
-    puts("\r\n");
+    uart_puts("Detected :");
+    uart_puts(epd_model_string[epd_model]);
+    uart_puts("\r\n");
 
-    puts("EPD_POWER_ON\r\n");
+    uart_puts("EPD_POWER_ON\r\n");
     EPD_POWER_OFF();
 }
 
-_attribute_ram_code_ uint8_t EPD_read_temp(void)
+_attribute_ram_code_ int8_t EPD_read_temp(void)
 {
     if (epd_temperature_is_read)
         return epd_temperature;
@@ -211,7 +211,7 @@ _attribute_ram_code_ void EPD_Display(unsigned char *image, unsigned char *red_i
     if (!epd_model)
         EPD_detect_model();
 
-    // puts("Trying to update EPD\r\n");
+    // uart_puts("Trying to update EPD\r\n");
 
     EPD_init();
     // system power
@@ -373,7 +373,7 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     sprintf(buff, "%s", BLE_conn_string[ble_get_connected()]);
     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, conn_x, 20, (char *)buff, 1);
 
-    sprintf(buff, "-----%d'C-----", EPD_read_temp());
+    sprintf(buff, "-----%d'C-----", epd_temperature);
     obdWriteStringCustom(&obd, (GFXfont *)&Special_Elite_Regular_30, 10, 95, (char *)buff, 1);
     sprintf(buff, "Battery %dmV  %d%%", battery_mv, battery_level);
     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1);
@@ -405,9 +405,12 @@ _attribute_ram_code_ void epd_display_char(uint8_t data)
 
 _attribute_ram_code_ void epd_clear(void)
 {
-    memset(epd_buffer, 0x00, epd_buffer_size);
-    memset(epd_buffer_red, 0x00, epd_buffer_size);
-    memset(epd_temp, 0x00, epd_buffer_size);
+    uint16_t sz = epd_get_current_buffer_size();
+    if (!sz)
+        sz = epd_buffer_size;
+    memset(epd_buffer, 0x00, sz);
+    memset(epd_buffer_red, 0x00, sz);
+    memset(epd_temp, 0x00, sz);
 }
 
 void update_time_scene(struct date_time _time, uint16_t battery_mv, int16_t temperature, void (*scene)(struct date_time, uint16_t, int16_t, uint8_t))
@@ -590,8 +593,8 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
     // Convert drawing buffer into panel memory layout
     FixBuffer(epd_temp, epd_buffer, resolution_w, resolution_h);
 
-    // Send to panel (black-only layer)
-    EPD_Display(epd_buffer, NULL, (resolution_w * resolution_h) / 8, full_or_partial);
+    // Send to panel (pass cleared red buffer to avoid ghosting on BWR panels)
+    EPD_Display(epd_buffer, epd_buffer_red, (resolution_w * resolution_h) / 8, full_or_partial);
 }
 
 void epd_get_resolution(uint8_t model_nr, uint16_t *width, uint16_t *height)
