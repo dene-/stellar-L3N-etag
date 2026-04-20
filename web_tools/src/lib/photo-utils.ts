@@ -31,7 +31,7 @@ export async function loadPhotoItem(file: File, index: number): Promise<PhotoIte
 		id: `${file.name}-${index}-${Date.now()}`,
 		name: file.name,
 		image,
-		imageFitMode: 'contain',
+		imageFitMode: 'cover',
 		imageRotation: 0,
 		coverPanX: 0,
 		coverPanY: 0,
