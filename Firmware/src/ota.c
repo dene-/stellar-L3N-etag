@@ -92,9 +92,42 @@ _attribute_ram_code_ int custom_otaWrite(void *p)
 		out_buffer[2] = crc_out;
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 3);
 		break;
-	case 7:																																						 // when upload is done flash the firmware with this cmd
-		if ((address == 0xC001CEED) && (crc_verified != 0) && (crc_verified == crc_out)) // Only flash if "magic word" and CRC match
-			write_ota_firmware_to_flash();
+	case 7: // when upload is done flash the firmware with this cmd
+		if (address != 0xC001CEED || data_len < 7)
+		{
+			out_buffer[0] = 0x07;
+			out_buffer[1] = 0x00; // failure — bad magic or missing CRC
+			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
+			break;
+		}
+		{
+			uint16_t expected_crc = (payload[5] << 8) | payload[6];
+			// Compute CRC from flash (same as case 6)
+			crc_out = 0;
+			for (int i = 0; i < OTA_MAX_SIZE; i += 0x100)
+			{
+				flash_read_page(OTA_BANK_START + i, sizeof(ramd_to_flash_temp_buffer), ramd_to_flash_temp_buffer);
+				for (int c = 0; c < 0x100; c++)
+				{
+					crc_out += ramd_to_flash_temp_buffer[c];
+				}
+			}
+			if (crc_out != 0 && crc_out == expected_crc)
+			{
+				out_buffer[0] = 0x07;
+				out_buffer[1] = 0x01; // success — about to flash and reboot
+				bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
+				write_ota_firmware_to_flash();
+			}
+			else
+			{
+				out_buffer[0] = 0x07;
+				out_buffer[1] = 0x00; // failure — CRC mismatch
+				out_buffer[2] = crc_out >> 8;
+				out_buffer[3] = crc_out & 0xFF;
+				bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 4);
+			}
+		}
 		break;
 	}
 

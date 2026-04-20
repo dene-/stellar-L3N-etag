@@ -35,10 +35,14 @@ RAM uint8_t epd_wait_update = 0;
 
 RAM uint8_t hour_refresh = 100;
 RAM uint8_t minute_refresh = 100;
+RAM uint8_t partial_refresh_count = 0;
+#define PARTIAL_REFRESH_FULL_INTERVAL 10 // Force full refresh every N partial updates
 
 const char *BLE_conn_string[] = {"BLE 0", "BLE 1"};
 RAM uint8_t epd_temperature_is_read = 0;
 RAM int8_t epd_temperature = 0;
+RAM uint32_t epd_temperature_read_time = 0;
+#define EPD_TEMP_CACHE_SECONDS 300 // Cache temperature for 5 minutes
 
 RAM uint8_t epd_buffer[epd_buffer_size];
 uint8_t epd_buffer_red[epd_buffer_size];
@@ -95,6 +99,7 @@ void set_EPD_model(uint8_t model_nr)
 {
     epd_model = model_nr;
     epd_temperature_is_read = 0;
+    epd_temperature_read_time = 0;
 }
 
 uint8_t get_EPD_model(void)
@@ -171,7 +176,8 @@ _attribute_ram_code_ void EPD_detect_model(void)
 
 _attribute_ram_code_ int8_t EPD_read_temp(void)
 {
-    if (epd_temperature_is_read)
+    uint32_t now = get_unix_time();
+    if (epd_temperature_is_read && (now - epd_temperature_read_time) < EPD_TEMP_CACHE_SECONDS)
         return epd_temperature;
 
     if (!epd_model)
@@ -202,6 +208,7 @@ _attribute_ram_code_ int8_t EPD_read_temp(void)
     EPD_POWER_OFF();
 
     epd_temperature_is_read = 1;
+    epd_temperature_read_time = get_unix_time();
 
     return epd_temperature;
 }
@@ -236,6 +243,7 @@ _attribute_ram_code_ void EPD_Display(unsigned char *image, unsigned char *red_i
     // epd_temperature = EPD_BWR_296_Display(image, size, full_or_partial);
 
     epd_temperature_is_read = 1;
+    epd_temperature_read_time = get_unix_time();
     epd_update_state = 1;
 }
 
@@ -430,18 +438,21 @@ void update_time_scene(struct date_time _time, uint16_t battery_mv, int16_t temp
     {
         scene(_time, battery_mv, temperature, 1);
         epd_wait_update = 0;
+        partial_refresh_count = 0;
     }
 
     else if (_time.tm_min != minute_refresh)
     {
         minute_refresh = _time.tm_min;
-        if (_time.tm_hour != hour_refresh)
+        if (partial_refresh_count >= PARTIAL_REFRESH_FULL_INTERVAL)
         {
-            hour_refresh = _time.tm_hour;
+            // Periodic full refresh to clear ghosting
+            partial_refresh_count = 0;
             scene(_time, battery_mv, temperature, 1);
         }
         else
         {
+            partial_refresh_count++;
             scene(_time, battery_mv, temperature, 0);
         }
     }

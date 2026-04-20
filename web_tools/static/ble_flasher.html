@@ -146,7 +146,8 @@
       }
 
       async function doFinalFlash(crc) {
-        addLog("Sending Final flash: " + "07C001CEED" + crc);
+        addLog("Sending final flash command: 07C001CEED" + crc);
+        addLog("Device is verifying CRC and flashing... please wait.");
         await sendCommand(hexToBytes("07C001CEED" + crc));
       }
 

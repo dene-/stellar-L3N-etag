@@ -42,19 +42,11 @@ _attribute_ram_code_ void EPD_SPI_Write(unsigned char value)
 {
     unsigned char i;
 
-    WaitUs(10);
     for (i = 0; i < 8; i++)
     {
         gpio_write(EPD_CLK, 0);
-        if (value & 0x80)
-        {
-            gpio_write(EPD_MOSI, 1);
-        }
-        else
-        {
-            gpio_write(EPD_MOSI, 0);
-        }
-        value = (value << 1);
+        gpio_write(EPD_MOSI, (value & 0x80) ? 1 : 0);
+        value <<= 1;
         gpio_write(EPD_CLK, 1);
     }
 }
@@ -145,13 +137,32 @@ _attribute_ram_code_ void EPD_send_empty_lut(uint8_t lut, int len)
         EPD_WriteData(0x00);
 }
 
-_attribute_ram_code_ void EPD_LoadImage(unsigned char *image, int size, uint8_t cmd)
+_attribute_ram_code_ void EPD_WriteDataBulk(const unsigned char *data, int size)
 {
     int i;
-    EPD_WriteCmd(cmd);
+    gpio_write(EPD_CS, 0);
+    EPD_ENABLE_WRITE_DATA();
     for (i = 0; i < size; i++)
     {
-        EPD_WriteData(image[i]);
+        EPD_SPI_Write(data[i]);
     }
-    WaitMs(2);
+    gpio_write(EPD_CS, 1);
+}
+
+_attribute_ram_code_ void EPD_WriteDataRepeat(unsigned char value, int count)
+{
+    int i;
+    gpio_write(EPD_CS, 0);
+    EPD_ENABLE_WRITE_DATA();
+    for (i = 0; i < count; i++)
+    {
+        EPD_SPI_Write(value);
+    }
+    gpio_write(EPD_CS, 1);
+}
+
+_attribute_ram_code_ void EPD_LoadImage(unsigned char *image, int size, uint8_t cmd)
+{
+    EPD_WriteCmd(cmd);
+    EPD_WriteDataBulk(image, size);
 }

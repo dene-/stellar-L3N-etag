@@ -563,10 +563,23 @@ class BleConnectionStore {
 			this.firmwareUploadProgress = (offset / data.length) * 100;
 		}
 
-		logStore.addLog('Sending final flash: 07C001CEED' + crcHex);
-		logStore.addLog(`Firmware flash completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
-		this.isFlashingFirmware = false;
+		logStore.addLog(
+			`Firmware upload completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
+		);
+
+		// Send case 6 (on-device CRC verification) before case 7.
+		// This sets crc_verified on older firmware that requires it.
+		logStore.addLog('Verifying flash CRC on device...');
+		await this.writeCharacteristic?.writeValue(new Uint8Array([0x06]) as BufferSource);
+		// Wait for the device to read back 128KB of flash and compute CRC
+		await new Promise((resolve) => setTimeout(resolve, 3000));
+
+		logStore.addLog('Sending final flash command: 07C001CEED' + crcHex);
 		await this.writeCharacteristic?.writeValue(hexToBytes('07C001CEED' + crcHex) as BufferSource);
+
+		logStore.addLog('Flash command sent — device should reboot now.');
+
+		this.isFlashingFirmware = false;
 	}
 
 	resetVariables() {

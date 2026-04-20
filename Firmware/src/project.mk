@@ -11,6 +11,8 @@ $(OUT_PATH)/image_store.o \
 $(OUT_PATH)/etime.o \
 $(OUT_PATH)/epd_spi.o \
 $(OUT_PATH)/epd.o \
+$(OUT_PATH)/epd_uc8151c.o \
+$(OUT_PATH)/epd_ssd16xx.o \
 $(OUT_PATH)/epd_bw_213.o \
 $(OUT_PATH)/epd_bwr_296.o \
 $(OUT_PATH)/epd_bwr_213.o \
