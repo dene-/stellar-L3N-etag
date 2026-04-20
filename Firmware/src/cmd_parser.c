@@ -7,16 +7,25 @@
 
 #include "etime.h"
 #include "flash.h"
+#include "image_store.h"
 #include "led.h"
 
 extern settings_struct settings;
 extern uint8_t epd_temperature; // last measured EPD temperature (°C)
 
 #define testPin GPIO_PD3
-void cmd_parser(void *p)
+
+static void notify_rxtx_status(uint8_t command, uint8_t subcommand, uint8_t status)
+{
+	u8 buf[3] = {command, subcommand, status};
+	bls_att_pushNotifyData(RxTx_CMD_OUT_DP_H, buf, 3);
+}
+
+_attribute_ram_code_ void cmd_parser(void *p)
 {
 	rf_packet_att_data_t *req = (rf_packet_att_data_t *)p;
 	uint8_t inData = req->dat[0];
+	uint8_t payload_len = req->l2capLen - 3;
 	if (inData == 0xFF)
 	{
 		gpio_set_func(testPin, AS_GPIO);
@@ -104,13 +113,13 @@ void cmd_parser(void *p)
 			epd_get_current_resolution(&width, &height);
 
 			u8 buf[7] = {
-				0xE2,
-				0xAB,
-				model,
-				(u8)(width & 0xFF),
-				(u8)((width >> 8) & 0xFF),
-				(u8)(height & 0xFF),
-				(u8)((height >> 8) & 0xFF),
+					0xE2,
+					0xAB,
+					model,
+					(u8)(width & 0xFF),
+					(u8)((width >> 8) & 0xFF),
+					(u8)(height & 0xFF),
+					(u8)((height >> 8) & 0xFF),
 			};
 			bls_att_pushNotifyData(RxTx_CMD_OUT_DP_H, buf, 7);
 		}
@@ -141,6 +150,58 @@ void cmd_parser(void *p)
 		else if (req->dat[1] == 0x01)
 		{
 			led_set_rainbow_enabled(1);
+		}
+	}
+	else if (inData == 0xE5)
+	{
+		switch (req->dat[1])
+		{
+		case 0x00:
+			if (payload_len < 6)
+			{
+				notify_rxtx_status(0xE5, 0x00, 0x00);
+				return;
+			}
+
+			if (image_store_prepare(req->dat[2], req->dat[4] | (req->dat[5] << 8), req->dat[3]))
+			{
+				notify_rxtx_status(0xE5, 0x00, 0x01);
+			}
+			else
+			{
+				notify_rxtx_status(0xE5, 0x00, 0x00);
+			}
+			break;
+		case 0x01:
+			if (payload_len < 7)
+			{
+				notify_rxtx_status(0xE5, 0x01, 0x00);
+				return;
+			}
+
+			if (!image_store_write_chunk(req->dat[2], req->dat[3], req->dat[4] | (req->dat[5] << 8), &req->dat[6], payload_len - 6))
+			{
+				notify_rxtx_status(0xE5, 0x01, 0x00);
+			}
+			break;
+		case 0x02:
+			if (image_store_finalize())
+			{
+				set_EPD_scene(image_store_get_image_count() > 1 ? 3 : 0);
+				notify_rxtx_status(0xE5, 0x02, 0x01);
+			}
+			else
+			{
+				notify_rxtx_status(0xE5, 0x02, 0x00);
+			}
+			break;
+		case 0x03:
+			image_store_clear();
+			set_EPD_scene(0);
+			notify_rxtx_status(0xE5, 0x03, 0x01);
+			break;
+		default:
+			break;
 		}
 	}
 }

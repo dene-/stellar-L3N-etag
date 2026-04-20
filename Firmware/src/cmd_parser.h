@@ -1,3 +1,3 @@
-#pragma once 
+#pragma once
 
-void cmd_parser(void * p);
+_attribute_ram_code_ void cmd_parser(void *p);

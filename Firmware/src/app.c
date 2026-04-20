@@ -9,6 +9,7 @@
 #include "battery.h"
 #include "ble.h"
 #include "flash.h"
+#include "image_store.h"
 #include "ota.h"
 #include "epd.h"
 #include "epd_spi.h"
@@ -29,7 +30,13 @@ _attribute_ram_code_ void user_init_normal(void)
     init_time();
     init_ble();
     init_flash();
+    image_store_init();
     init_nfc();
+
+    if (image_store_has_images())
+    {
+        set_EPD_scene(image_store_get_image_count() > 1 ? 3 : 0);
+    }
 
     // epd_display_tiff((uint8_t *)bart_tif, sizeof(bart_tif));
     // epd_display(3334533);

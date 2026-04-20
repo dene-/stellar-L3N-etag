@@ -13,6 +13,8 @@
 #include "stack/ble/ble.h"
 
 #include "battery.h"
+#include "image_store.h"
+#include "etime.h"
 
 #include "OneBitDisplay.h"
 #include "TIFF_G4.h"
@@ -43,6 +45,8 @@ uint8_t epd_buffer_red[epd_buffer_size];
 RAM uint8_t epd_temp[epd_buffer_size]; // for OneBitDisplay to draw into
 OBDISP obd;                            // virtual display structure
 TIFFIMAGE tiff;
+RAM uint8_t slideshow_index = 0;
+RAM uint32_t slideshow_last_switch = 0;
 
 static void epd_get_resolution_for_model(uint8_t model_nr, uint16_t *width, uint16_t *height)
 {
@@ -435,11 +439,61 @@ void epd_update(struct date_time _time, uint16_t battery_mv, int16_t temperature
 {
     switch (epd_scene)
     {
+    case 0:
+        if (image_store_has_images() && image_store_take_display_pending())
+        {
+            uint16_t buffer_size = image_store_get_plane_size();
+
+            image_store_load_image(0, epd_buffer, epd_buffer_red, buffer_size);
+            EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+        }
+        break;
     case 1:
         update_time_scene(_time, battery_mv, temperature, epd_display);
         break;
     case 2:
         update_time_scene(_time, battery_mv, temperature, epd_display_time_with_date);
+        break;
+    case 3:
+        if (image_store_has_images())
+        {
+            uint8_t count = image_store_get_image_count();
+            uint16_t interval_seconds = image_store_get_interval_seconds();
+            uint16_t buffer_size = image_store_get_plane_size();
+            uint32_t now = get_unix_time();
+
+            if (count == 0 || buffer_size == 0)
+            {
+                break;
+            }
+
+            if (interval_seconds == 0)
+            {
+                interval_seconds = 60;
+            }
+
+            if (image_store_take_display_pending())
+            {
+                slideshow_index = 0;
+                slideshow_last_switch = now;
+                image_store_load_image(slideshow_index, epd_buffer, epd_buffer_red, buffer_size);
+                EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+                break;
+            }
+
+            if (now < slideshow_last_switch)
+            {
+                slideshow_last_switch = now;
+            }
+
+            if (!epd_update_state && (now - slideshow_last_switch) >= interval_seconds)
+            {
+                slideshow_last_switch = now;
+                slideshow_index = (slideshow_index + 1) % count;
+                image_store_load_image(slideshow_index, epd_buffer, epd_buffer_red, buffer_size);
+                EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+            }
+        }
         break;
     default:
         break;

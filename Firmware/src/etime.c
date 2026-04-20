@@ -6,7 +6,7 @@
 #include "etime.h"
 #include "main.h"
 
-RAM uint16_t time_trime = 5000;// The higher the number the slower the time runs!, -32,768 to 32,767 
+RAM uint16_t time_trime = 5000; // The higher the number the slower the time runs!, -32,768 to 32,767
 RAM uint32_t one_second_trimmed = CLOCK_16M_SYS_TIMER_CLK_1S;
 RAM uint32_t current_unix_time;
 RAM struct date_time current_date = {0};
@@ -34,17 +34,24 @@ _attribute_ram_code_ void handler_time(void)
         current_date.tm_hour = ((current_unix_time / 60) / 60) % 24;
         current_date.tm_sec = current_unix_time % 60;
 
-        if (current_unix_time % 86400 == 0) {
+        if (current_unix_time % 86400 == 0)
+        {
             current_date.tm_month = current_date.tm_month % 12;
-            if (current_date.tm_day + 1 > map[current_date.tm_month - 1]) {
+            if (current_date.tm_day + 1 > map[current_date.tm_month - 1])
+            {
                 current_date.tm_day = 1;
-                if (current_date.tm_month + 1 > 12) {
+                if (current_date.tm_month + 1 > 12)
+                {
                     current_date.tm_month = 1;
                     current_date.tm_year += 1;
-                } else {
+                }
+                else
+                {
                     current_date.tm_month += 1;
                 }
-            } else {
+            }
+            else
+            {
                 current_date.tm_day = current_date.tm_day + 1;
             }
 
@@ -77,6 +84,12 @@ _attribute_ram_code_ void set_time(uint32_t time_now, uint16_t time_year, uint8_
     current_date.tm_week = time_week;
 }
 
-_attribute_ram_code_ struct date_time get_time(void) {
+_attribute_ram_code_ uint32_t get_unix_time(void)
+{
+    return current_unix_time;
+}
+
+_attribute_ram_code_ struct date_time get_time(void)
+{
     return current_date;
 }

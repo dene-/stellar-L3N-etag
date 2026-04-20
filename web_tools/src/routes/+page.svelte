@@ -15,21 +15,50 @@
 	// Helpers to build hex payloads
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
 	const imageResizer = pica();
+	const FLASH_IMAGE_STORAGE_BYTES = 0x37000;
+
+	type PhotoItem = {
+		id: string;
+		name: string;
+		image: HTMLImageElement;
+		imageFitMode: ImageFitMode;
+		imageRotation: ImageRotation;
+		coverPanX: number;
+		coverPanY: number;
+		usePixelArtResize: boolean;
+	};
 
 	let charByteHex = $state('ff');
 
 	let ditheringMode: string = $state('bwr_Atkinson');
 	let serpentine = $state(false);
-	let usePixelArtResize = $state(false);
-	let imageFitMode: ImageFitMode = $state('contain');
-	let imageRotation: ImageRotation = $state(0);
-	let coverPanX = $state(0);
-	let coverPanY = $state(0);
+	let photoItems = $state<PhotoItem[]>([]);
+	let selectedPhotoIndex = $state(0);
+	let slideshowIntervalSeconds = $state(60);
 	let canvasEl: HTMLCanvasElement | null = null;
-	let sourceImage: HTMLImageElement | null = null;
-	let originalImageData: ImageData | null = null;
 
 	let firmwareArray = $state('');
+
+	async function handlePageError(error: unknown) {
+		console.error(error);
+		logStore.addLog('Error: ' + (error instanceof Error ? error.message : String(error)));
+	}
+
+	function getSelectedPhoto() {
+		return photoItems[selectedPhotoIndex] ?? null;
+	}
+
+	function imageControlsDisabled() {
+		return (
+			!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware || !getSelectedPhoto()
+		);
+	}
+
+	function revokePhotoUrls(items: PhotoItem[]) {
+		for (const photo of items) {
+			URL.revokeObjectURL(photo.image.src);
+		}
+	}
 
 	function onCanvasReady(node: HTMLCanvasElement) {
 		canvasEl = node;
@@ -77,7 +106,8 @@
 		drawX: number,
 		drawY: number,
 		drawWidth: number,
-		drawHeight: number
+		drawHeight: number,
+		usePixelArtResize: boolean
 	) {
 		if (usePixelArtResize) {
 			const resizedImage = pixelArtResize(source, drawWidth, drawHeight);
@@ -90,25 +120,37 @@
 		ctx.drawImage(resizedCanvas, drawX, drawY);
 	}
 
-	async function renderSourceImage() {
-		if (!canvasEl || !sourceImage) return;
-
-		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+	async function applyDitheringToCanvas(targetCanvas: HTMLCanvasElement, original: ImageData) {
+		const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
 		if (!ctx) return;
 
-		const rotatedSource = rotateSourceToCanvas(sourceImage, imageRotation);
+		ctx.putImageData(original, 0, 0);
+
+		const isBwr = ditheringMode.startsWith('bwr_');
+		const kern = ditheringMode.split('_')[1] || 'Atkinson';
+
+		await ditheringCanvasByPalette(targetCanvas, isBwr ? bwrPalette : bwPalette, kern, {
+			dithSerp: serpentine
+		});
+	}
+
+	async function renderPhotoToCanvas(photo: PhotoItem, targetCanvas: HTMLCanvasElement) {
+		const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
+		if (!ctx) return null;
+
+		const rotatedSource = rotateSourceToCanvas(photo.image, photo.imageRotation);
 
 		ctx.fillStyle = '#fff';
-		ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+		ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
 
-		if (imageFitMode === 'cover') {
+		if (photo.imageFitMode === 'cover') {
 			const crop = getCoverCropRect(
 				rotatedSource.width,
 				rotatedSource.height,
-				canvasEl.width,
-				canvasEl.height,
-				coverPanX,
-				coverPanY
+				targetCanvas.width,
+				targetCanvas.height,
+				photo.coverPanX,
+				photo.coverPanY
 			);
 			const croppedSource = createCroppedCanvas(
 				rotatedSource,
@@ -117,99 +159,124 @@
 				crop.width,
 				crop.height
 			);
-			await drawSourceWithResizeMode(croppedSource, ctx, 0, 0, canvasEl.width, canvasEl.height);
-		} else if (imageFitMode === 'contain') {
+			await drawSourceWithResizeMode(
+				croppedSource,
+				ctx,
+				0,
+				0,
+				targetCanvas.width,
+				targetCanvas.height,
+				photo.usePixelArtResize
+			);
+		} else if (photo.imageFitMode === 'contain') {
 			const contained = getContainSize(
 				rotatedSource.width,
 				rotatedSource.height,
-				canvasEl.width,
-				canvasEl.height
+				targetCanvas.width,
+				targetCanvas.height
 			);
-			const offsetX = Math.floor((canvasEl.width - contained.width) / 2);
-			const offsetY = Math.floor((canvasEl.height - contained.height) / 2);
+			const offsetX = Math.floor((targetCanvas.width - contained.width) / 2);
+			const offsetY = Math.floor((targetCanvas.height - contained.height) / 2);
 			await drawSourceWithResizeMode(
 				rotatedSource,
 				ctx,
 				offsetX,
 				offsetY,
 				contained.width,
-				contained.height
+				contained.height,
+				photo.usePixelArtResize
 			);
 		} else {
-			await drawSourceWithResizeMode(rotatedSource, ctx, 0, 0, canvasEl.width, canvasEl.height);
+			await drawSourceWithResizeMode(
+				rotatedSource,
+				ctx,
+				0,
+				0,
+				targetCanvas.width,
+				targetCanvas.height,
+				photo.usePixelArtResize
+			);
 		}
 
-		originalImageData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
-		await applyDithering();
+		const original = ctx.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
+		await applyDitheringToCanvas(targetCanvas, original);
+		return original;
+	}
+
+	async function renderSelectedPhoto() {
+		if (!canvasEl) return;
+
+		const selectedPhoto = getSelectedPhoto();
+		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+		if (!ctx) return;
+
+		if (!selectedPhoto) {
+			ctx.fillStyle = '#fff';
+			ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+			return;
+		}
+
+		await renderPhotoToCanvas(selectedPhoto, canvasEl);
 	}
 
 	async function resizeCanvasToDisplay(targetWidth: number, targetHeight: number) {
 		if (!canvasEl) return;
 
 		if (canvasEl.width === targetWidth && canvasEl.height === targetHeight) return;
-
-		const previousImageData = originalImageData;
 		canvasEl.width = targetWidth;
 		canvasEl.height = targetHeight;
-
-		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
-		if (!ctx) return;
-
-		ctx.fillStyle = '#fff';
-		ctx.fillRect(0, 0, targetWidth, targetHeight);
-
-		if (sourceImage) {
-			await renderSourceImage();
-			return;
-		}
-
-		if (!previousImageData) return;
-
-		const sourceCanvas = document.createElement('canvas');
-		sourceCanvas.width = previousImageData.width;
-		sourceCanvas.height = previousImageData.height;
-
-		const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
-		if (!sourceCtx) return;
-
-		sourceCtx.putImageData(previousImageData, 0, 0);
-		ctx.drawImage(
-			sourceCanvas,
-			0,
-			0,
-			previousImageData.width,
-			previousImageData.height,
-			0,
-			0,
-			targetWidth,
-			targetHeight
-		);
-		originalImageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
-		await applyDithering();
+		await renderSelectedPhoto();
 	}
 
 	$effect(() => {
 		void resizeCanvasToDisplay(bleConnectionStore.displayWidth, bleConnectionStore.displayHeight);
 	});
 
-	function handleImageFile(event: Event) {
+	async function loadPhotoItem(file: File, index: number): Promise<PhotoItem> {
+		const image = new Image();
+		const objectUrl = URL.createObjectURL(file);
+
+		image.src = objectUrl;
+
+		await new Promise<void>((resolve, reject) => {
+			image.onload = () => resolve();
+			image.onerror = () => reject(new Error(`Unable to load ${file.name}`));
+		});
+
+		return {
+			id: `${file.name}-${index}-${Date.now()}`,
+			name: file.name,
+			image,
+			imageFitMode: 'contain',
+			imageRotation: 0,
+			coverPanX: 0,
+			coverPanY: 0,
+			usePixelArtResize: false
+		};
+	}
+
+	async function handleImageFile(event: Event) {
 		const input = event.target as HTMLInputElement;
 
 		if (!canvasEl || !input.files || input.files.length === 0) return;
 
-		const file = input.files[0];
+		try {
+			const nextItems = await Promise.all(
+				Array.from(input.files).map((file, index) => loadPhotoItem(file, index))
+			);
 
-		const img = new Image();
-		img.src = URL.createObjectURL(file);
+			revokePhotoUrls(photoItems);
+			photoItems = nextItems;
+			selectedPhotoIndex = 0;
 
-		img.onload = async () => {
-			try {
-				sourceImage = img;
-				await renderSourceImage();
-			} finally {
-				URL.revokeObjectURL(img.src);
+			if (nextItems.length > 1 && slideshowIntervalSeconds < 1) {
+				slideshowIntervalSeconds = 60;
 			}
-		};
+
+			await renderSelectedPhoto();
+		} catch (error) {
+			await handlePageError(error);
+		}
 	}
 
 	function handleFirmwareFile(event: Event) {
@@ -254,36 +321,21 @@
 	}
 
 	async function applyDithering() {
-		if (!canvasEl) return;
-
-		const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
-
-		if (!ctx) return;
-
-		if (originalImageData) ctx.putImageData(originalImageData, 0, 0);
-
-		const isBwr = ditheringMode.startsWith('bwr_');
-		const kern = ditheringMode.split('_')[1] || 'Atkinson';
-
-		await ditheringCanvasByPalette(canvasEl, isBwr ? bwrPalette : bwPalette, kern, {
-			dithSerp: serpentine
-		});
+		await renderSelectedPhoto();
 	}
 
 	async function rerenderImageWithCurrentResizeMode() {
-		if (!sourceImage) {
-			await applyDithering();
-			return;
-		}
-
-		await renderSourceImage();
+		await renderSelectedPhoto();
 	}
 
 	function handleImageFitModeChange(event: Event) {
 		const select = event.currentTarget;
 		if (!(select instanceof HTMLSelectElement)) return;
 
-		imageFitMode = select.value as ImageFitMode;
+		const selectedPhoto = getSelectedPhoto();
+		if (!selectedPhoto) return;
+
+		selectedPhoto.imageFitMode = select.value as ImageFitMode;
 		void rerenderImageWithCurrentResizeMode();
 	}
 
@@ -292,26 +344,83 @@
 	}
 
 	function nudgeCoverCrop(deltaX: number, deltaY: number) {
-		coverPanX = clampPanOffset(coverPanX + deltaX);
-		coverPanY = clampPanOffset(coverPanY + deltaY);
+		const selectedPhoto = getSelectedPhoto();
+		if (!selectedPhoto) return;
+
+		selectedPhoto.coverPanX = clampPanOffset(selectedPhoto.coverPanX + deltaX);
+		selectedPhoto.coverPanY = clampPanOffset(selectedPhoto.coverPanY + deltaY);
 		void rerenderImageWithCurrentResizeMode();
 	}
 
 	function resetCoverCropPosition() {
-		coverPanX = 0;
-		coverPanY = 0;
+		const selectedPhoto = getSelectedPhoto();
+		if (!selectedPhoto) return;
+
+		selectedPhoto.coverPanX = 0;
+		selectedPhoto.coverPanY = 0;
 		void rerenderImageWithCurrentResizeMode();
 	}
 
 	function rotateImage(delta: 90 | -90) {
-		const nextRotation = (imageRotation + delta + 360) % 360;
-		imageRotation = nextRotation as ImageRotation;
+		const selectedPhoto = getSelectedPhoto();
+		if (!selectedPhoto) return;
+
+		const nextRotation = (selectedPhoto.imageRotation + delta + 360) % 360;
+		selectedPhoto.imageRotation = nextRotation as ImageRotation;
 		void rerenderImageWithCurrentResizeMode();
 	}
 
+	function togglePixelArtResize(event: Event) {
+		const input = event.currentTarget;
+		const selectedPhoto = getSelectedPhoto();
+
+		if (!(input instanceof HTMLInputElement) || !selectedPhoto) return;
+
+		selectedPhoto.usePixelArtResize = input.checked;
+		void rerenderImageWithCurrentResizeMode();
+	}
+
+	function switchSelectedPhoto(delta: number) {
+		if (!photoItems.length) return;
+
+		selectedPhotoIndex = (selectedPhotoIndex + delta + photoItems.length) % photoItems.length;
+		void renderSelectedPhoto();
+	}
+
+	async function buildRenderedImageBuffers(photo: PhotoItem) {
+		const offscreenCanvas = createWorkingCanvas(
+			bleConnectionStore.displayWidth,
+			bleConnectionStore.displayHeight
+		);
+		await renderPhotoToCanvas(photo, offscreenCanvas);
+
+		return {
+			name: photo.name,
+			black: new Uint8Array(canvas2bytes(offscreenCanvas, 'bw')),
+			red: new Uint8Array(canvas2bytes(offscreenCanvas, 'bwr'))
+		};
+	}
+
 	async function uploadImage() {
-		if (!canvasEl) return;
-		await bleConnectionStore.uploadImageFromCanvas(canvasEl);
+		if (!photoItems.length) return;
+
+		const planeSize = (bleConnectionStore.displayWidth * bleConnectionStore.displayHeight) / 8;
+		const maxImageCount = Math.floor(FLASH_IMAGE_STORAGE_BYTES / (planeSize * 2));
+
+		if (photoItems.length > maxImageCount) {
+			alert(`Too many photos for device flash. Maximum for this display is ${maxImageCount}.`);
+			return;
+		}
+
+		const renderedPhotos = [];
+		for (const photo of photoItems) {
+			renderedPhotos.push(await buildRenderedImageBuffers(photo));
+		}
+
+		await bleConnectionStore.uploadImageSet(
+			renderedPhotos,
+			photoItems.length > 1 ? slideshowIntervalSeconds : 0
+		);
 	}
 
 	function setTimeNow() {
@@ -520,11 +629,52 @@
 							<input
 								class="file-input file-input-bordered file-input-primary"
 								type="file"
+								multiple
 								accept=".png,.jpg,.jpeg,.bmp,.webp"
 								onchange={handleImageFile}
 								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 							/>
 						</fieldset>
+
+						{#if photoItems.length > 1}
+							<fieldset class="fieldset p-0">
+								<legend class="fieldset-legend">Slideshow interval</legend>
+								<input
+									type="number"
+									min="1"
+									class="input input-bordered input-primary w-40"
+									bind:value={slideshowIntervalSeconds}
+									disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+								/>
+							</fieldset>
+						{/if}
+
+						{#if photoItems.length > 1}
+							<fieldset class="fieldset p-0">
+								<legend class="fieldset-legend">Editing photo</legend>
+								<div class="join">
+									<button
+										class="btn join-item"
+										type="button"
+										onclick={() => switchSelectedPhoto(-1)}
+									>
+										⬅️
+									</button>
+									<div
+										class="join-item flex items-center px-3 border border-base-300 bg-base-100 min-w-48 text-sm"
+									>
+										{selectedPhotoIndex + 1} / {photoItems.length}: {getSelectedPhoto()?.name}
+									</div>
+									<button
+										class="btn join-item"
+										type="button"
+										onclick={() => switchSelectedPhoto(1)}
+									>
+										➡️
+									</button>
+								</div>
+							</fieldset>
+						{/if}
 
 						<fieldset class="fieldset p-0">
 							<legend class="fieldset-legend">Dithering</legend>
@@ -563,9 +713,9 @@
 							<legend class="fieldset-legend">Fit / crop</legend>
 							<select
 								class="select select-bordered select-primary w-60"
-								value={imageFitMode}
+								value={getSelectedPhoto()?.imageFitMode ?? 'contain'}
 								onchange={handleImageFitModeChange}
-								disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+								disabled={imageControlsDisabled()}
 							>
 								<option value="contain">Fit with padding</option>
 								<option value="cover">Fill and crop</option>
@@ -580,8 +730,7 @@
 									<button
 										type="button"
 										class="btn btn-sm btn-outline"
-										disabled={!bleConnectionStore.connected ||
-											bleConnectionStore.isFlashingFirmware}
+										disabled={imageControlsDisabled()}
 										onclick={() => rotateImage(-90)}
 										title="Rotate left"
 									>
@@ -590,9 +739,8 @@
 									<button
 										type="button"
 										class="btn btn-sm btn-outline"
-										disabled={imageFitMode !== 'cover' ||
-											!bleConnectionStore.connected ||
-											bleConnectionStore.isFlashingFirmware}
+										disabled={getSelectedPhoto()?.imageFitMode !== 'cover' ||
+											imageControlsDisabled()}
 										onclick={() => nudgeCoverCrop(0, -0.15)}
 										title="Move crop up"
 									>
@@ -601,8 +749,7 @@
 									<button
 										type="button"
 										class="btn btn-sm btn-outline"
-										disabled={!bleConnectionStore.connected ||
-											bleConnectionStore.isFlashingFirmware}
+										disabled={imageControlsDisabled()}
 										onclick={() => rotateImage(90)}
 										title="Rotate right"
 									>
@@ -611,9 +758,8 @@
 									<button
 										type="button"
 										class="btn btn-sm btn-outline"
-										disabled={imageFitMode !== 'cover' ||
-											!bleConnectionStore.connected ||
-											bleConnectionStore.isFlashingFirmware}
+										disabled={getSelectedPhoto()?.imageFitMode !== 'cover' ||
+											imageControlsDisabled()}
 										onclick={() => nudgeCoverCrop(-0.15, 0)}
 										title="Move crop left"
 									>
@@ -622,9 +768,8 @@
 									<button
 										type="button"
 										class="btn btn-sm btn-outline"
-										disabled={imageFitMode !== 'cover' ||
-											!bleConnectionStore.connected ||
-											bleConnectionStore.isFlashingFirmware}
+										disabled={getSelectedPhoto()?.imageFitMode !== 'cover' ||
+											imageControlsDisabled()}
 										onclick={resetCoverCropPosition}
 										title="Center crop"
 									>
@@ -633,23 +778,21 @@
 									<button
 										type="button"
 										class="btn btn-sm btn-outline"
-										disabled={imageFitMode !== 'cover' ||
-											!bleConnectionStore.connected ||
-											bleConnectionStore.isFlashingFirmware}
+										disabled={getSelectedPhoto()?.imageFitMode !== 'cover' ||
+											imageControlsDisabled()}
 										onclick={() => nudgeCoverCrop(0.15, 0)}
 										title="Move crop right"
 									>
 										➡️
 									</button>
 									<div class="flex items-center justify-center text-xs text-base-content/70">
-										{imageRotation}°
+										{getSelectedPhoto()?.imageRotation ?? 0}°
 									</div>
 									<button
 										type="button"
 										class="btn btn-sm btn-outline"
-										disabled={imageFitMode !== 'cover' ||
-											!bleConnectionStore.connected ||
-											bleConnectionStore.isFlashingFirmware}
+										disabled={getSelectedPhoto()?.imageFitMode !== 'cover' ||
+											imageControlsDisabled()}
 										onclick={() => nudgeCoverCrop(0, 0.15)}
 										title="Move crop down"
 									>
@@ -658,7 +801,9 @@
 									<div></div>
 								</div>
 								<div class="text-xs text-base-content/70">
-									X: {Math.round(coverPanX * 100)}% Y: {Math.round(coverPanY * 100)}%
+									X: {Math.round((getSelectedPhoto()?.coverPanX ?? 0) * 100)}% Y: {Math.round(
+										(getSelectedPhoto()?.coverPanY ?? 0) * 100
+									)}%
 								</div>
 							</div>
 						</fieldset>
@@ -669,9 +814,9 @@
 								<input
 									type="checkbox"
 									class="checkbox checkbox-primary"
-									bind:checked={usePixelArtResize}
-									disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-									onchange={rerenderImageWithCurrentResizeMode}
+									checked={getSelectedPhoto()?.usePixelArtResize ?? false}
+									disabled={imageControlsDisabled()}
+									onchange={togglePixelArtResize}
 								/>
 								<span class="label-text">Use PixelOE-style contrast resize</span>
 							</label>
@@ -696,6 +841,9 @@
 						<div class="self-start bg-base-100 rounded-lg p-3 w-full max-w-[500px]">
 							<div class="mb-2 text-sm text-base-content/70">
 								Canvas: {bleConnectionStore.displayWidth}x{bleConnectionStore.displayHeight}
+								{#if getSelectedPhoto()}
+									| Editing: {getSelectedPhoto()?.name}
+								{/if}
 							</div>
 							<canvas
 								use:onCanvasReady
@@ -706,11 +854,13 @@
 							></canvas>
 						</div>
 						<button
-							disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+							disabled={!bleConnectionStore.connected ||
+								bleConnectionStore.isFlashingFirmware ||
+								!photoItems.length}
 							class="btn btn-primary self-start"
 							onclick={uploadImage}
 						>
-							Upload to Display Now
+							{photoItems.length > 1 ? 'Upload Slideshow' : 'Upload Photo'}
 						</button>
 					</div>
 				</div>
