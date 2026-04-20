@@ -33,10 +33,8 @@ _attribute_ram_code_ void user_init_normal(void)
     image_store_init();
     init_nfc();
 
-    if (image_store_has_images())
-    {
-        set_EPD_scene(image_store_get_image_count() > 1 ? 3 : 0);
-    }
+    // Always start on the default clock scene after a fresh boot / OTA.
+    // The user can switch to slideshow mode via BLE if desired.
 
     // epd_display_tiff((uint8_t *)bart_tif, sizeof(bart_tif));
     // epd_display(3334533);

@@ -265,6 +265,11 @@ class BleConnectionStore {
 		});
 
 		this.connected = true;
+
+		// Allow BLE connection parameters and CCCD writes to stabilise
+		// before querying the device, otherwise the firmware may silently
+		// drop the notification response.
+		await new Promise((r) => setTimeout(r, 600));
 		await this.queryDisplayInfo();
 	}
 

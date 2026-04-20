@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libncurses5 libtinfo5 \
   git \
   file \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && ln -sf /usr/bin/python3 /usr/bin/python
 
 WORKDIR /workspace
 # No toolchain install needed: project bundles tc32 toolchain (Linux x86_64) under Firmware/tc32_linux

@@ -202,7 +202,7 @@ _attribute_ram_code_ void cmd_parser(void *p)
 			break;
 		case 0x03:
 			image_store_clear();
-			set_EPD_scene(0);
+			set_EPD_scene(2); // return to default clock scene
 			ble_set_connection_speed(200);
 			notify_rxtx_status(0xE5, 0x03, 0x01);
 			break;

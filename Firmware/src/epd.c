@@ -42,8 +42,8 @@ RAM uint8_t epd_temperature = 0;
 
 RAM uint8_t epd_buffer[epd_buffer_size];
 uint8_t epd_buffer_red[epd_buffer_size];
-RAM uint8_t epd_temp[epd_buffer_size]; // for OneBitDisplay to draw into
-OBDISP obd;                            // virtual display structure
+uint8_t epd_temp[epd_buffer_size]; // for OneBitDisplay to draw into (scratch, no retention needed)
+OBDISP obd;                        // virtual display structure
 TIFFIMAGE tiff;
 RAM uint8_t slideshow_index = 0;
 RAM uint32_t slideshow_last_switch = 0;
@@ -105,6 +105,15 @@ uint8_t get_EPD_model(void)
 // With this we can force a display if it wasnt detected correctly
 void set_EPD_scene(uint8_t scene)
 {
+    // When switching from a clock scene to an image scene, clear the display
+    // first so the EPD controller's old-frame RAM doesn't ghost the previous scene.
+    // Skip if the EPD is currently refreshing or if we're already on an image scene.
+    if ((scene == 0 || scene == 3) && epd_scene != 0 && epd_scene != 3 && !epd_update_state)
+    {
+        uint16_t buffer_size = epd_get_current_buffer_size();
+        epd_clear();
+        EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+    }
     epd_scene = scene;
     set_EPD_wait_flush();
 }

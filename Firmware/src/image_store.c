@@ -1,5 +1,4 @@
 #include <stdint.h>
-#include <string.h>
 
 #include "tl_common.h"
 #include "app_config.h"
@@ -93,7 +92,7 @@ static uint8_t image_store_is_header_valid(const image_store_header_t *header)
   return 1;
 }
 
-_attribute_ram_code_ static void image_store_erase_all_blocks(void)
+static void image_store_erase_all_blocks(void)
 {
   uint32_t address;
 
@@ -103,7 +102,7 @@ _attribute_ram_code_ static void image_store_erase_all_blocks(void)
   }
 }
 
-_attribute_ram_code_ static void image_store_write_bytes(uint32_t address, const uint8_t *data, uint16_t length)
+static void image_store_write_bytes(uint32_t address, const uint8_t *data, uint16_t length)
 {
   uint16_t remaining = length;
   uint16_t cursor = 0;
@@ -137,7 +136,7 @@ void image_store_init(void)
   }
 }
 
-_attribute_ram_code_ void image_store_clear(void)
+void image_store_clear(void)
 {
   image_store_erase_all_blocks();
   memset(&image_store_header, 0, sizeof(image_store_header));
@@ -145,7 +144,7 @@ _attribute_ram_code_ void image_store_clear(void)
   image_store_display_pending = 0;
 }
 
-_attribute_ram_code_ uint8_t image_store_prepare(uint8_t model, uint16_t interval_seconds, uint8_t image_count)
+uint8_t image_store_prepare(uint8_t model, uint16_t interval_seconds, uint8_t image_count)
 {
   uint16_t width = 0;
   uint16_t height = 0;
@@ -171,6 +170,8 @@ _attribute_ram_code_ uint8_t image_store_prepare(uint8_t model, uint16_t interva
     return 0;
   }
 
+  // Erase only after all validation passes, so we don't lose existing
+  // images if the new configuration turns out to be invalid.
   image_store_erase_all_blocks();
   memset(&image_store_header, 0, sizeof(image_store_header));
   image_store_header.magic = IMAGE_STORE_MAGIC;
@@ -188,7 +189,7 @@ _attribute_ram_code_ uint8_t image_store_prepare(uint8_t model, uint16_t interva
   return 1;
 }
 
-_attribute_ram_code_ uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t offset, const uint8_t *data, uint16_t length)
+uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t offset, const uint8_t *data, uint16_t length)
 {
   uint32_t address;
 
@@ -217,7 +218,7 @@ _attribute_ram_code_ uint8_t image_store_write_chunk(uint8_t image_index, uint8_
   return 1;
 }
 
-_attribute_ram_code_ uint8_t image_store_finalize(void)
+uint8_t image_store_finalize(void)
 {
   if (image_store_header.image_count == 0)
   {

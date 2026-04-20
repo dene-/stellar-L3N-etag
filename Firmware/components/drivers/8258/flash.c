@@ -1,5 +1,5 @@
 /********************************************************************************************************
- * @file     flash.c 
+ * @file     flash.c
  *
  * @brief    This is the source file for TLSR8258
  *
@@ -24,15 +24,15 @@
  *
  *******************************************************************************************************/
 
-
 #include "flash.h"
 #include "spi_i.h"
 #include "irq.h"
 #include "timer.h"
 #include "watchdog.h"
 
-_attribute_ram_code_ static inline int flash_is_busy(){
-	return mspi_read() & 0x01;				//  the busy bit, pls check flash spec
+_attribute_ram_code_ static inline int flash_is_busy()
+{
+	return mspi_read() & 0x01; //  the busy bit, pls check flash spec
 }
 
 /**
@@ -40,7 +40,8 @@ _attribute_ram_code_ static inline int flash_is_busy(){
  * @param[in] cmd - set command.
  * @return    none
  */
-_attribute_ram_code_ static void flash_send_cmd(unsigned char cmd){
+_attribute_ram_code_ static void flash_send_cmd(unsigned char cmd)
+{
 	mspi_high();
 	sleep_us(1);
 	mspi_low();
@@ -53,10 +54,11 @@ _attribute_ram_code_ static void flash_send_cmd(unsigned char cmd){
  * @param[in] addr - the flash address.
  * @return    none
  */
-_attribute_ram_code_ static void flash_send_addr(unsigned int addr){
-	mspi_write((unsigned char)(addr>>16));
+_attribute_ram_code_ static void flash_send_addr(unsigned int addr)
+{
+	mspi_write((unsigned char)(addr >> 16));
 	mspi_wait();
-	mspi_write((unsigned char)(addr>>8));
+	mspi_write((unsigned char)(addr >> 8));
 	mspi_wait();
 	mspi_write((unsigned char)(addr));
 	mspi_wait();
@@ -74,21 +76,23 @@ _attribute_ram_code_ static void flash_wait_done(void)
 	flash_send_cmd(FLASH_READ_STATUS_CMD);
 
 	int i;
-	for(i = 0; i < 10000000; ++i){
-		if(!flash_is_busy()){
+	for (i = 0; i < 10000000; ++i)
+	{
+		if (!flash_is_busy())
+		{
 			break;
 		}
 	}
 	mspi_high();
 }
 
-
 /**
  * @brief This function serves to erase a sector.
  * @param[in]   addr the start address of the sector needs to erase.
  * @return none
  */
-_attribute_ram_code_ void flash_erase_sector(unsigned long addr){
+_attribute_ram_code_ void flash_erase_sector(unsigned long addr)
+{
 	unsigned char r = irq_disable();
 
 	wd_clear();
@@ -102,7 +106,6 @@ _attribute_ram_code_ void flash_erase_sector(unsigned long addr){
 	irq_restore(r);
 }
 
-
 /**
  * @brief This function writes the buffer's content to a page.
  * @param[in]   addr the start address of the page
@@ -110,7 +113,8 @@ _attribute_ram_code_ void flash_erase_sector(unsigned long addr){
  * @param[in]   buf the start address of the content needs to write into
  * @return none
  */
-_attribute_ram_code_ void flash_write_page(unsigned long addr, unsigned long len, unsigned char *buf){
+_attribute_ram_code_ void flash_write_page(unsigned long addr, unsigned long len, unsigned char *buf)
+{
 	unsigned char r = irq_disable();
 
 	// important:  buf must not reside at flash, such as constant string.  If that case, pls copy to memory first before write
@@ -119,8 +123,9 @@ _attribute_ram_code_ void flash_write_page(unsigned long addr, unsigned long len
 	flash_send_addr(addr);
 
 	unsigned int i;
-	for(i = 0; i < len; ++i){
-		mspi_write(buf[i]);		/* write data */
+	for (i = 0; i < len; ++i)
+	{
+		mspi_write(buf[i]); /* write data */
 		mspi_wait();
 	}
 	mspi_high();
@@ -136,47 +141,26 @@ _attribute_ram_code_ void flash_write_page(unsigned long addr, unsigned long len
  * @param[out]  buf the start address of the buffer
  * @return none
  */
-_attribute_ram_code_ void flash_read_page(unsigned long addr, unsigned long len, unsigned char *buf){
+_attribute_ram_code_ void flash_read_page(unsigned long addr, unsigned long len, unsigned char *buf)
+{
 	unsigned char r = irq_disable();
-
 
 	flash_send_cmd(FLASH_READ_CMD);
 	flash_send_addr(addr);
 
-	mspi_write(0x00);		/* dummy,  to issue clock */
+	mspi_write(0x00); /* dummy,  to issue clock */
 	mspi_wait();
-	mspi_ctrl_write(0x0a);	/* auto mode */
+	mspi_ctrl_write(0x0a); /* auto mode */
 	mspi_wait();
 	/* get data */
-	for(int i = 0; i < len; ++i){
+	for (int i = 0; i < len; ++i)
+	{
 		*buf++ = mspi_get();
 		mspi_wait();
 	}
 	mspi_high();
 
 	irq_restore(r);
-}
-
-
-/* according to your appliaction */
-#if 0
-
-/**
- * @brief This function serves to erase a page(256 bytes).
- * @param[in]   addr the start address of the page needs to erase.
- * @return none
- */
-_attribute_ram_code_ void flash_erase_page(unsigned int addr)
-{
-	unsigned char r = irq_disable();
-
-	flash_send_cmd(FLASH_WRITE_ENABLE_CMD);
-	flash_send_cmd(FLASH_PAGE_ERASE_CMD);
-	flash_send_addr(addr);
-	mspi_high();
-	flash_wait_done();
-
-    irq_restore(r);
 }
 
 /**
@@ -192,6 +176,27 @@ _attribute_ram_code_ void flash_erase_32kblock(unsigned int addr)
 
 	flash_send_cmd(FLASH_WRITE_ENABLE_CMD);
 	flash_send_cmd(FLASH_32KBLK_ERASE_CMD);
+	flash_send_addr(addr);
+	mspi_high();
+	flash_wait_done();
+
+	irq_restore(r);
+}
+
+/* according to your appliaction */
+#if 0
+
+/**
+ * @brief This function serves to erase a page(256 bytes).
+ * @param[in]   addr the start address of the page needs to erase.
+ * @return none
+ */
+_attribute_ram_code_ void flash_erase_page(unsigned int addr)
+{
+	unsigned char r = irq_disable();
+
+	flash_send_cmd(FLASH_WRITE_ENABLE_CMD);
+	flash_send_cmd(FLASH_PAGE_ERASE_CMD);
 	flash_send_addr(addr);
 	mspi_high();
 	flash_wait_done();
