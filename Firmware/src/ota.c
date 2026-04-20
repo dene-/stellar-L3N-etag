@@ -7,14 +7,15 @@
 #include "main.h"
 
 #define OTA_BANK_START 0x20000 // 131kb about
-#define OTA_MAX_SIZE 0x20000   // 131kb about
+#define OTA_MAX_SIZE 0x20000	 // 131kb about
 
 RAM uint8_t out_buffer[20] = {0};
 
 RAM uint8_t ramd_to_flash_temp_buffer[0x100];
 RAM uint16_t ram_position = 0;
 
-uint16_t crc_out = 0;
+RAM uint16_t crc_out = 0;
+RAM uint16_t crc_verified = 0;
 
 _attribute_ram_code_ int custom_otaWrite(void *p)
 {
@@ -30,7 +31,7 @@ _attribute_ram_code_ int custom_otaWrite(void *p)
 
 	switch (payload[0])
 	{
-	case 0:																						   // just a reboot to test
+	case 0:																																											 // just a reboot to test
 		analog_write(SYS_DEEP_ANA_REG, analog_read(SYS_DEEP_ANA_REG) & (~SYS_NEED_REINIT_EXT32K)); // clear
 		irq_disable();
 		REG_ADDR8(0x6f) = 0x20; // reboot
@@ -60,7 +61,7 @@ _attribute_ram_code_ int custom_otaWrite(void *p)
 		break;
 	case 3: // write into the temporary buffer that will later be written to flash
 		crc_out = 0;
-		if (ram_position + (data_len - 1) > 0x100)
+		if (data_len < 1 || ram_position + (data_len - 1) > 0x100)
 			return 0;
 		memcpy(&ramd_to_flash_temp_buffer[ram_position], &payload[1], (data_len - 1));
 		ram_position += (data_len - 1);
@@ -85,13 +86,14 @@ _attribute_ram_code_ int custom_otaWrite(void *p)
 				crc_out += ramd_to_flash_temp_buffer[c]; // yeah thats not real CRC, but its better than nothing for now
 			}
 		}
+		crc_verified = crc_out;
 		out_buffer[0] = 0x07;
 		out_buffer[1] = crc_out >> 8;
 		out_buffer[2] = crc_out;
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 3);
 		break;
-	case 7:																									  // when upload is done flash the firmware with this cmd, better do some CRC or checking before as it could brick the device
-		if ((address == 0xC001CEED) && (out_buffer[5] == (crc_out >> 8)) && (out_buffer[6] == (crc_out & 0xff))) // Only flash if "magic word" is send
+	case 7:																																						 // when upload is done flash the firmware with this cmd
+		if ((address == 0xC001CEED) && (crc_verified != 0) && (crc_verified == crc_out)) // Only flash if "magic word" and CRC match
 			write_ota_firmware_to_flash();
 		break;
 	}

@@ -20,32 +20,32 @@ extern uint8_t my_batVal[1];
 
 RAM uint8_t blt_rxfifo_b[64 * 8] = {0};
 RAM my_fifo_t blt_rxfifo = {
-	64,
-	8,
-	0,
-	0,
-	blt_rxfifo_b,
+		64,
+		8,
+		0,
+		0,
+		blt_rxfifo_b,
 };
 
 RAM uint8_t blt_txfifo_b[40 * 16] = {0};
 RAM my_fifo_t blt_txfifo = {
-	40,
-	16,
-	0,
-	0,
-	blt_txfifo_b,
+		40,
+		16,
+		0,
+		0,
+		blt_txfifo_b,
 };
 
 RAM uint8_t ble_name[] = {11, 0x09, 'T', 'H', 'X', '_', '0', '0', '0', '0', '0', '0'};
 
 RAM uint8_t advertising_data[] = {
-	/*Description*/ 16, 0x16, 0x1a, 0x18,
-	/*MAC*/ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	/*Temp*/ 0xaa, 0xaa,
-	/*Humi*/ 0xbb,
-	/*BatL*/ 0xcc,
-	/*BatM*/ 0xdd, 0xdd,
-	/*Counter*/ 0x00};
+		/*Description*/ 16, 0x16, 0x1a, 0x18,
+		/*MAC*/ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		/*Temp*/ 0xaa, 0xaa,
+		/*Humi*/ 0xbb,
+		/*BatL*/ 0xcc,
+		/*BatM*/ 0xdd, 0xdd,
+		/*Counter*/ 0x00};
 
 RAM uint8_t mac_public[6];
 
@@ -59,6 +59,7 @@ _attribute_ram_code_ void ble_disconnect_callback(uint8_t e, uint8_t *p, int n)
 {
 	ble_connected = 0;
 	ota_started = 0;
+	cmd_parser_flush_settings();
 	printf("BLE disconnected\r\n");
 }
 
@@ -124,12 +125,11 @@ void init_ble(void)
 	advertising_data[9] = mac_public[0];
 
 	////// Controller Initialization  //////////
-	blc_ll_initBasicMCU();					   // must
-	blc_ll_initStandby_module(mac_public);	   // must
+	blc_ll_initBasicMCU();										 // must
+	blc_ll_initStandby_module(mac_public);		 // must
 	blc_ll_initAdvertising_module(mac_public); // adv module: 		 must for BLE slave,
-	blc_ll_initConnection_module();			   // connection module  must for BLE slave/master
-	blc_ll_initSlaveRole_module();			   // slave module: 	 must for BLE slave,
-	blc_ll_initPowerManagement_module();	   // pm module:      	 optional
+	blc_ll_initConnection_module();						 // connection module  must for BLE slave/master
+	blc_ll_initSlaveRole_module();						 // slave module: 	 must for BLE slave,
 
 	////// Host Initialization  //////////
 	blc_gap_peripheral_init();

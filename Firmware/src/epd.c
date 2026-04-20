@@ -13,6 +13,8 @@
 #include "stack/ble/ble.h"
 
 #include "battery.h"
+#include "image_store.h"
+#include "etime.h"
 
 #include "OneBitDisplay.h"
 #include "TIFF_G4.h"
@@ -22,7 +24,7 @@ extern const uint8_t ucMirror[];
 #include "font16zh.h"
 #include "font30.h"
 
-#define LOG_UART(charP) puts(charP)
+#define LOG_UART(charP) uart_puts(charP)
 
 RAM uint8_t epd_model = 0; // 0 = Undetected, 1 = BW213, 2 = BWR213_PRO, 3 = BWR154, 4 = BW213ICE, 5 = BWR290/BWR296
 const char *epd_model_string[] = {"NC", "BW213", "BWR213", "BWR154", "213ICE", "BWR290"};
@@ -36,13 +38,15 @@ RAM uint8_t minute_refresh = 100;
 
 const char *BLE_conn_string[] = {"BLE 0", "BLE 1"};
 RAM uint8_t epd_temperature_is_read = 0;
-RAM uint8_t epd_temperature = 0;
+RAM int8_t epd_temperature = 0;
 
 RAM uint8_t epd_buffer[epd_buffer_size];
 uint8_t epd_buffer_red[epd_buffer_size];
-RAM uint8_t epd_temp[epd_buffer_size]; // for OneBitDisplay to draw into
-OBDISP obd;                            // virtual display structure
+uint8_t epd_temp[epd_buffer_size]; // for OneBitDisplay to draw into (scratch, no retention needed)
+OBDISP obd;                        // virtual display structure
 TIFFIMAGE tiff;
+RAM uint8_t slideshow_index = 0;
+RAM uint32_t slideshow_last_switch = 0;
 
 static void epd_get_resolution_for_model(uint8_t model_nr, uint16_t *width, uint16_t *height)
 {
@@ -101,6 +105,15 @@ uint8_t get_EPD_model(void)
 // With this we can force a display if it wasnt detected correctly
 void set_EPD_scene(uint8_t scene)
 {
+    // When switching from a clock scene to an image scene, clear the display
+    // first so the EPD controller's old-frame RAM doesn't ghost the previous scene.
+    // Skip if the EPD is currently refreshing or if we're already on an image scene.
+    if ((scene == 0 || scene == 3) && epd_scene != 0 && epd_scene != 3 && !epd_update_state)
+    {
+        uint16_t buffer_size = epd_get_current_buffer_size();
+        epd_clear();
+        EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+    }
     epd_scene = scene;
     set_EPD_wait_flush();
 }
@@ -115,8 +128,8 @@ _attribute_ram_code_ void EPD_detect_model(void)
 {
     EPD_init();
     // system power
-    puts("EPD_detect_model\r\n");
-    puts("EPD_POWER_ON\r\n");
+    uart_puts("EPD_detect_model\r\n");
+    uart_puts("EPD_POWER_ON\r\n");
     EPD_POWER_ON();
 
     WaitMs(10);
@@ -148,15 +161,15 @@ _attribute_ram_code_ void EPD_detect_model(void)
         epd_model = 1;
     }
 
-    puts("Detected :");
-    puts(epd_model_string[epd_model]);
-    puts("\r\n");
+    uart_puts("Detected :");
+    uart_puts(epd_model_string[epd_model]);
+    uart_puts("\r\n");
 
-    puts("EPD_POWER_ON\r\n");
+    uart_puts("EPD_POWER_ON\r\n");
     EPD_POWER_OFF();
 }
 
-_attribute_ram_code_ uint8_t EPD_read_temp(void)
+_attribute_ram_code_ int8_t EPD_read_temp(void)
 {
     if (epd_temperature_is_read)
         return epd_temperature;
@@ -198,7 +211,7 @@ _attribute_ram_code_ void EPD_Display(unsigned char *image, unsigned char *red_i
     if (!epd_model)
         EPD_detect_model();
 
-    // puts("Trying to update EPD\r\n");
+    // uart_puts("Trying to update EPD\r\n");
 
     EPD_init();
     // system power
@@ -360,7 +373,7 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     sprintf(buff, "%s", BLE_conn_string[ble_get_connected()]);
     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, conn_x, 20, (char *)buff, 1);
 
-    sprintf(buff, "-----%d'C-----", EPD_read_temp());
+    sprintf(buff, "-----%d'C-----", epd_temperature);
     obdWriteStringCustom(&obd, (GFXfont *)&Special_Elite_Regular_30, 10, 95, (char *)buff, 1);
     sprintf(buff, "Battery %dmV  %d%%", battery_mv, battery_level);
     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1);
@@ -392,9 +405,12 @@ _attribute_ram_code_ void epd_display_char(uint8_t data)
 
 _attribute_ram_code_ void epd_clear(void)
 {
-    memset(epd_buffer, 0x00, epd_buffer_size);
-    memset(epd_buffer_red, 0x00, epd_buffer_size);
-    memset(epd_temp, 0x00, epd_buffer_size);
+    uint16_t sz = epd_get_current_buffer_size();
+    if (!sz)
+        sz = epd_buffer_size;
+    memset(epd_buffer, 0x00, sz);
+    memset(epd_buffer_red, 0x00, sz);
+    memset(epd_temp, 0x00, sz);
 }
 
 void update_time_scene(struct date_time _time, uint16_t battery_mv, int16_t temperature, void (*scene)(struct date_time, uint16_t, int16_t, uint8_t))
@@ -435,11 +451,61 @@ void epd_update(struct date_time _time, uint16_t battery_mv, int16_t temperature
 {
     switch (epd_scene)
     {
+    case 0:
+        if (image_store_has_images() && image_store_take_display_pending())
+        {
+            uint16_t buffer_size = image_store_get_plane_size();
+
+            image_store_load_image(0, epd_buffer, epd_buffer_red, buffer_size);
+            EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+        }
+        break;
     case 1:
         update_time_scene(_time, battery_mv, temperature, epd_display);
         break;
     case 2:
         update_time_scene(_time, battery_mv, temperature, epd_display_time_with_date);
+        break;
+    case 3:
+        if (image_store_has_images())
+        {
+            uint8_t count = image_store_get_image_count();
+            uint16_t interval_seconds = image_store_get_interval_seconds();
+            uint16_t buffer_size = image_store_get_plane_size();
+            uint32_t now = get_unix_time();
+
+            if (count == 0 || buffer_size == 0)
+            {
+                break;
+            }
+
+            if (interval_seconds == 0)
+            {
+                interval_seconds = 60;
+            }
+
+            if (image_store_take_display_pending())
+            {
+                slideshow_index = 0;
+                slideshow_last_switch = now;
+                image_store_load_image(slideshow_index, epd_buffer, epd_buffer_red, buffer_size);
+                EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+                break;
+            }
+
+            if (now < slideshow_last_switch)
+            {
+                slideshow_last_switch = now;
+            }
+
+            if (!epd_update_state && (now - slideshow_last_switch) >= interval_seconds)
+            {
+                slideshow_last_switch = now;
+                slideshow_index = (slideshow_index + 1) % count;
+                image_store_load_image(slideshow_index, epd_buffer, epd_buffer_red, buffer_size);
+                EPD_Display(epd_buffer, epd_buffer_red, buffer_size, 1);
+            }
+        }
         break;
     default:
         break;
@@ -527,8 +593,8 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
     // Convert drawing buffer into panel memory layout
     FixBuffer(epd_temp, epd_buffer, resolution_w, resolution_h);
 
-    // Send to panel (black-only layer)
-    EPD_Display(epd_buffer, NULL, (resolution_w * resolution_h) / 8, full_or_partial);
+    // Send to panel (pass cleared red buffer to avoid ghosting on BWR panels)
+    EPD_Display(epd_buffer, epd_buffer_red, (resolution_w * resolution_h) / 8, full_or_partial);
 }
 
 void epd_get_resolution(uint8_t model_nr, uint16_t *width, uint16_t *height)

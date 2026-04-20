@@ -1,6 +1,6 @@
 #pragma once
 
-typedef struct Settings_struct
+typedef struct __attribute__((packed)) Settings_struct
 {
 	uint32_t magic;
 	uint32_t len;
