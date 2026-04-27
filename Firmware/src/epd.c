@@ -13,6 +13,7 @@
 #include "stack/ble/ble.h"
 
 #include "battery.h"
+#include "flash.h"
 #include "image_store.h"
 #include "etime.h"
 
@@ -51,6 +52,42 @@ OBDISP obd;                        // virtual display structure
 TIFFIMAGE tiff;
 RAM uint8_t slideshow_index = 0;
 RAM uint32_t slideshow_last_switch = 0;
+
+extern settings_struct settings;
+
+static uint8_t epd_is_fast_refresh_supported_model(uint8_t model_nr)
+{
+    switch (model_nr)
+    {
+    case 1:
+    case 2:
+    case 4:
+    case 5:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static uint8_t epd_resolve_refresh_mode(uint8_t full_or_partial)
+{
+    if (!epd_model)
+    {
+        EPD_detect_model();
+    }
+
+    if (!settings.fast_refresh_enabled)
+    {
+        return full_or_partial;
+    }
+
+    if (!epd_is_fast_refresh_supported_model(epd_model))
+    {
+        return full_or_partial;
+    }
+
+    return 0;
+}
 
 static void epd_get_resolution_for_model(uint8_t model_nr, uint16_t *width, uint16_t *height)
 {
@@ -105,6 +142,26 @@ void set_EPD_model(uint8_t model_nr)
 uint8_t get_EPD_model(void)
 {
     return epd_model;
+}
+
+void set_EPD_fast_refresh_enabled(uint8_t enabled)
+{
+    settings.fast_refresh_enabled = enabled ? 1 : 0;
+}
+
+uint8_t get_EPD_fast_refresh_enabled(void)
+{
+    return settings.fast_refresh_enabled ? 1 : 0;
+}
+
+uint8_t get_EPD_fast_refresh_supported(void)
+{
+    if (!epd_model)
+    {
+        EPD_detect_model();
+    }
+
+    return epd_is_fast_refresh_supported_model(epd_model);
 }
 
 // With this we can force a display if it wasnt detected correctly
@@ -215,6 +272,8 @@ _attribute_ram_code_ int8_t EPD_read_temp(void)
 
 _attribute_ram_code_ void EPD_Display(unsigned char *image, unsigned char *red_image, int size, uint8_t full_or_partial)
 {
+    full_or_partial = epd_resolve_refresh_mode(full_or_partial);
+
     if (!epd_model)
         EPD_detect_model();
 
@@ -344,6 +403,67 @@ _attribute_ram_code_ void epd_display_tiff(uint8_t *pData, int iSize)
 }
 
 extern uint8_t mac_public[6];
+
+static int16_t epd_get_text_width(GFXfont *font, char *text)
+{
+    int width = 0;
+    int top = 0;
+    int bottom = 0;
+
+    obdGetStringBox(font, text, &width, &top, &bottom);
+    return (int16_t)width;
+}
+
+static int16_t epd_clamp_text_x(GFXfont *font, char *text, int16_t x, int16_t left, int16_t right)
+{
+    int16_t width = epd_get_text_width(font, text);
+    int16_t max_x = right - width + 1;
+
+    if (right < left)
+    {
+        return left;
+    }
+
+    if (width >= (right - left + 1))
+    {
+        return left;
+    }
+
+    if (x < left)
+    {
+        return left;
+    }
+
+    if (x > max_x)
+    {
+        return max_x;
+    }
+
+    return x;
+}
+
+static void epd_write_text_clamped(OBDISP *display, GFXfont *font, int16_t x, int16_t y, char *text, uint8_t color, int16_t left, int16_t right)
+{
+    x = epd_clamp_text_x(font, text, x, left, right);
+    obdWriteStringCustom(display, font, x, y, text, color);
+}
+
+static void epd_write_text_centered(OBDISP *display, GFXfont *font, int16_t left, int16_t right, int16_t y, char *text, uint8_t color)
+{
+    int16_t width = epd_get_text_width(font, text);
+    int16_t x = left + ((right - left + 1 - width) / 2);
+
+    epd_write_text_clamped(display, font, x, y, text, color, left, right);
+}
+
+static void epd_write_text_right(OBDISP *display, GFXfont *font, int16_t left, int16_t right, int16_t y, char *text, uint8_t color)
+{
+    int16_t width = epd_get_text_width(font, text);
+    int16_t x = right - width + 1;
+
+    epd_write_text_clamped(display, font, x, y, text, color, left, right);
+}
+
 _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_mv, int16_t temperature, uint8_t full_or_partial)
 {
     uint8_t battery_level;
@@ -352,7 +472,6 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     uint16_t header_right = 0;
     uint16_t conn_x = 0;
     uint16_t red_bottom = 0;
-    uint16_t time_x = 0;
 
     if (epd_update_state)
         return;
@@ -366,7 +485,6 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     header_right = resolution_w - 1;
     conn_x = (resolution_w > 48) ? (resolution_w - 48) : 1;
     red_bottom = (resolution_h > 7) ? (resolution_h - 7) : (resolution_h - 1);
-    time_x = (resolution_w >= 296) ? 98 : 75;
 
     epd_clear();
 
@@ -377,14 +495,14 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     char buff[100];
     battery_level = get_battery_level(battery_mv);
     sprintf(buff, "THX_%02X%02X%02X %s", mac_public[2], mac_public[1], mac_public[0], epd_model_string[epd_model]);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 1, 17, (char *)buff, 1);
+    epd_write_text_clamped(&obd, (GFXfont *)&Dialog_plain_16, 1, 17, (char *)buff, 1, 1, header_right);
     sprintf(buff, "%s", BLE_conn_string[ble_get_connected()]);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, conn_x, 20, (char *)buff, 1);
+    epd_write_text_clamped(&obd, (GFXfont *)&Dialog_plain_16, conn_x, 20, (char *)buff, 1, 1, header_right);
 
     sprintf(buff, "-----%d'C-----", epd_temperature);
-    obdWriteStringCustom(&obd, (GFXfont *)&Special_Elite_Regular_30, 10, 95, (char *)buff, 1);
+    epd_write_text_centered(&obd, (GFXfont *)&Special_Elite_Regular_30, 0, header_right, 95, (char *)buff, 1);
     sprintf(buff, "Battery %dmV  %d%%", battery_mv, battery_level);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1);
+    epd_write_text_clamped(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1, 0, header_right);
 
     FixBuffer(epd_temp, epd_buffer, resolution_w, resolution_h);
 
@@ -394,7 +512,7 @@ _attribute_ram_code_ void epd_display(struct date_time _time, uint16_t battery_m
     obdRectangle(&obd, 0, 90, header_right, red_bottom, 1, 0);
 
     sprintf(buff, "%02d:%02d", _time.tm_hour, _time.tm_min);
-    obdWriteStringCustom(&obd, (GFXfont *)&DSEG14_Classic_Mini_Regular_40, time_x, 65, (char *)buff, 1);
+    epd_write_text_centered(&obd, (GFXfont *)&DSEG14_Classic_Mini_Regular_40, 0, header_right, 65, (char *)buff, 1);
 
     FixBuffer(epd_temp, epd_buffer_red, resolution_w, resolution_h);
     EPD_Display(epd_buffer, epd_buffer_red, resolution_w * resolution_h / 8, full_or_partial);
@@ -530,9 +648,12 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
     uint16_t resolution_h = epd_height;
     uint16_t right = 0;
     uint16_t battery_left = 0;
+    uint16_t battery_text_left = 0;
+    uint16_t battery_text_right = 0;
     uint16_t info_x = 0;
+    uint16_t info_width = 0;
     uint16_t divider_x = 0;
-    uint16_t time_x = 0;
+    uint16_t time_right = 0;
 
     if (!epd_model)
     {
@@ -548,10 +669,13 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
     }
 
     right = resolution_w - 1;
-    battery_left = (resolution_w > 25) ? (resolution_w - 25) : 0;
-    info_x = (resolution_w > 34) ? (resolution_w - 34) : 0;
-    divider_x = (resolution_w > 36) ? (resolution_w - 36) : 0;
-    time_x = (resolution_w >= 296) ? 58 : 35;
+    battery_left = (resolution_w > 44) ? (resolution_w - 44) : 0;
+    battery_text_left = battery_left + 3;
+    battery_text_right = (right > 3) ? (right - 3) : right;
+    info_width = (resolution_w >= 296) ? 78 : 74;
+    info_x = (resolution_w > info_width) ? (resolution_w - info_width) : 0;
+    divider_x = (info_x > 4) ? (info_x - 4) : info_x;
+    time_right = (divider_x > 4) ? (divider_x - 4) : right;
 
     // Clear all working buffers (black, red, temp)
     epd_clear();
@@ -565,32 +689,32 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
 
     // Device identifier (partial MAC)
     sprintf(buff, "THX_%02X%02X%02X", mac_public[2], mac_public[1], mac_public[0]);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 1, 17, (char *)buff, 1);
+    epd_write_text_clamped(&obd, (GFXfont *)&Dialog_plain_16, 1, 17, (char *)buff, 1, 1, (battery_left > 5) ? (battery_left - 5) : right);
 
     // Battery icon rectangle
     obdRectangle(&obd, battery_left, 2, right, 22, 1, 1);
 
     // Battery percentage inside battery outline (drawn white on black fill)
     sprintf(buff, "%d", battery_level);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, battery_left - 6, 18, (char *)buff, 0);
+    epd_write_text_right(&obd, (GFXfont *)&Dialog_plain_16, battery_text_left, battery_text_right, 18, (char *)buff, 0);
 
     // Separator bar under header
     obdRectangle(&obd, 0, 25, right, 27, 1, 1);
 
     // Time (HH:MM) big segmented font
     sprintf(buff, "%02d:%02d", _time.tm_hour, _time.tm_min);
-    obdWriteStringCustom(&obd, (GFXfont *)&DSEG14_Classic_Mini_Regular_40, time_x, 85, (char *)buff, 1);
+    epd_write_text_centered(&obd, (GFXfont *)&DSEG14_Classic_Mini_Regular_40, 0, time_right, 85, (char *)buff, 1);
 
     // Temperature (from EPD sensor, not the passed temperature param)
     sprintf(buff, "%d'C", epd_temperature);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, info_x, 50, (char *)buff, 1);
+    epd_write_text_right(&obd, (GFXfont *)&Dialog_plain_16, info_x, right, 50, (char *)buff, 1);
 
     // Small separator line under temperature
     obdRectangle(&obd, info_x, 60, right, 62, 1, 1);
 
     // Battery voltage in mV
-    sprintf(buff, " %dmV", battery_mv);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, info_x, 84, (char *)buff, 1);
+    sprintf(buff, "%dmV", battery_mv);
+    epd_write_text_right(&obd, (GFXfont *)&Dialog_plain_16, info_x, right, 84, (char *)buff, 1);
 
     // Vertical separator at right info block
     obdRectangle(&obd, divider_x, 27, divider_x + 2, 99, 1, 1);
@@ -599,7 +723,7 @@ void epd_display_time_with_date(struct date_time _time, uint16_t battery_mv, int
 
     // Date (YYYY-MM-DD)
     sprintf(buff, "%d-%02d-%02d", _time.tm_year, _time.tm_month, _time.tm_day);
-    obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1);
+    epd_write_text_clamped(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1, 0, right);
 
     // Convert drawing buffer into panel memory layout
     FixBuffer(epd_temp, epd_buffer, resolution_w, resolution_h);

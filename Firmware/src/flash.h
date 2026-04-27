@@ -11,6 +11,7 @@ typedef struct __attribute__((packed)) Settings_struct
 	uint8_t show_batt_enabled;
 	// When 1, LED heartbeat/blinking in main loop is enabled; when 0, LEDs stay off
 	uint8_t led_flashing_enabled;
+	uint8_t fast_refresh_enabled;
 	uint8_t advertising_interval; // advise new values - multiply by 10 for value
 	uint8_t measure_interval;			// time = loop interval * factor (def: about 7 * X)
 	int8_t temp_offset;

@@ -31,6 +31,12 @@
 		if (!(select instanceof HTMLSelectElement)) return;
 		bleConnectionStore.setDisplayModel(Number(select.value));
 	}
+
+	function handleFastRefreshChange(event: Event) {
+		const input = event.currentTarget;
+		if (!(input instanceof HTMLInputElement)) return;
+		bleConnectionStore.setFastRefreshEnabled(input.checked);
+	}
 </script>
 
 <div class="collapse collapse-arrow bg-base-300 rounded-lg">
@@ -115,6 +121,23 @@
 			</div>
 			<div class="flex flex-wrap gap-3">
 				<h4 class="w-full">Screen refresh</h4>
+				<label class="cursor-pointer inline-flex items-center gap-2">
+					<input
+						type="checkbox"
+						class="toggle toggle-primary"
+						checked={bleConnectionStore.fastRefreshEnabled}
+						onchange={handleFastRefreshChange}
+						disabled={!bleConnectionStore.connected ||
+							bleConnectionStore.isFlashingFirmware ||
+							!bleConnectionStore.fastRefreshSupported}
+					/>
+					<span class="label-text">
+						Fast refresh
+						{#if !bleConnectionStore.fastRefreshSupported}
+							(unsupported)
+						{/if}
+					</span>
+				</label>
 				<button
 					class="btn btn-primary"
 					onclick={() => bleConnectionStore.sendRxTxCommand('e200')}

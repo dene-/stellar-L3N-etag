@@ -86,6 +86,8 @@ class BleConnectionStore {
 	deviceModelName = $state(DEFAULT_DISPLAY_INFO.name);
 	displayWidth = $state(DEFAULT_DISPLAY_INFO.width);
 	displayHeight = $state(DEFAULT_DISPLAY_INFO.height);
+	fastRefreshEnabled = $state(false);
+	fastRefreshSupported = $state(false);
 	displaySource: DisplaySource = $state('default');
 
 	private applyDisplayModelInfo(info: DisplayModelInfo, source: DisplaySource) {
@@ -258,6 +260,15 @@ class BleConnectionStore {
 				return;
 			}
 
+			if (data.byteLength === 3 && data[0] === 0xe6) {
+				this.fastRefreshEnabled = data[1] === 0x01;
+				this.fastRefreshSupported = data[2] === 0x01;
+				logStore.addLog(
+					`[From display][RXTX]: Fast refresh ${this.fastRefreshEnabled ? 'enabled' : 'disabled'}${this.fastRefreshSupported ? '' : ' (not supported by current panel)'}`
+				);
+				return;
+			}
+
 			const hex = bytesToHex(data);
 
 			// Firmware sends 2 bytes: int16 LE (temp * 10). If no decimals, it's in steps of 10.
@@ -289,6 +300,21 @@ class BleConnectionStore {
 
 		logStore.addLog('Querying display model...');
 		await this.sendRxTxCommand('e2ab');
+		await this.queryFastRefreshInfo();
+	}
+
+	async queryFastRefreshInfo() {
+		if (!this.rxtxCharacteristic) {
+			logStore.addLog('Service unavailable. Is Bluetooth connected?');
+			return;
+		}
+
+		logStore.addLog('Querying fast refresh state...');
+		await this.sendRxTxCommand('e6aa');
+	}
+
+	async setFastRefreshEnabled(enabled: boolean) {
+		await this.sendRxTxCommand(enabled ? 'e601' : 'e600');
 	}
 
 	async setDisplayModel(model: number) {
@@ -598,6 +624,8 @@ class BleConnectionStore {
 		this.isUploadingImages = false;
 		this.suppressE5Notifications = false;
 		this.connectedDeviceName = '';
+		this.fastRefreshEnabled = false;
+		this.fastRefreshSupported = false;
 		this.applyDisplayModelInfo(DEFAULT_DISPLAY_INFO, 'default');
 	}
 }

@@ -79,6 +79,12 @@ LST_FILE := $(OUT_PATH)/$(PROJECT_NAME).lst
 BIN_FILE := $(OUT_PATH)/../$(PROJECT_NAME).bin
 ELF_FILE := $(OUT_PATH)/$(PROJECT_NAME).elf
 
+ifeq ($(OS), Windows_NT)
+PRE_BUILD_MKDIR := cmd /q /c "for %%d in ($(subst /,\,$(foreach s,$(OUT_DIR),$(OUT_PATH)$(s)))) do if not exist %%d mkdir %%d"
+else
+PRE_BUILD_MKDIR := mkdir -p $(foreach s,$(OUT_DIR),$(OUT_PATH)$(s))
+endif
+
 # All Target
 all: chmod_all pre-build main-build
 # Main-build Target
@@ -115,7 +121,7 @@ clean:
 	-@echo ' '
 
 pre-build:
-	$(WINDOWS_PREFIX)mkdir -p $(foreach s,$(OUT_DIR),$(OUT_PATH)$(s))
+	@$(PRE_BUILD_MKDIR)
 	-@echo ' '
 
 chmod_all:
