@@ -270,7 +270,7 @@
 					<legend class="fieldset-legend">Fit / crop</legend>
 					<select
 						class="select select-bordered select-primary w-60"
-						value={getSelectedPhoto()?.imageFitMode ?? 'contain'}
+						value={getSelectedPhoto()?.imageFitMode ?? 'cover'}
 						onchange={handleImageFitModeChange}
 						disabled={imageControlsDisabled()}
 					>

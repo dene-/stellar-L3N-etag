@@ -86,6 +86,8 @@ class BleConnectionStore {
 	deviceModelName = $state(DEFAULT_DISPLAY_INFO.name);
 	displayWidth = $state(DEFAULT_DISPLAY_INFO.width);
 	displayHeight = $state(DEFAULT_DISPLAY_INFO.height);
+	fastRefreshEnabled = $state(false);
+	fastRefreshSupported = $state(false);
 	displaySource: DisplaySource = $state('default');
 
 	private applyDisplayModelInfo(info: DisplayModelInfo, source: DisplaySource) {
@@ -258,6 +260,15 @@ class BleConnectionStore {
 				return;
 			}
 
+			if (data.byteLength === 3 && data[0] === 0xe6) {
+				this.fastRefreshEnabled = data[1] === 0x01;
+				this.fastRefreshSupported = data[2] === 0x01;
+				logStore.addLog(
+					`[From display][RXTX]: Fast refresh ${this.fastRefreshEnabled ? 'enabled' : 'disabled'}${this.fastRefreshSupported ? '' : ' (not supported by current panel)'}`
+				);
+				return;
+			}
+
 			const hex = bytesToHex(data);
 
 			// Firmware sends 2 bytes: int16 LE (temp * 10). If no decimals, it's in steps of 10.
@@ -289,6 +300,21 @@ class BleConnectionStore {
 
 		logStore.addLog('Querying display model...');
 		await this.sendRxTxCommand('e2ab');
+		await this.queryFastRefreshInfo();
+	}
+
+	async queryFastRefreshInfo() {
+		if (!this.rxtxCharacteristic) {
+			logStore.addLog('Service unavailable. Is Bluetooth connected?');
+			return;
+		}
+
+		logStore.addLog('Querying fast refresh state...');
+		await this.sendRxTxCommand('e6aa');
+	}
+
+	async setFastRefreshEnabled(enabled: boolean) {
+		await this.sendRxTxCommand(enabled ? 'e601' : 'e600');
 	}
 
 	async setDisplayModel(model: number) {
@@ -563,10 +589,23 @@ class BleConnectionStore {
 			this.firmwareUploadProgress = (offset / data.length) * 100;
 		}
 
-		logStore.addLog('Sending final flash: 07C001CEED' + crcHex);
-		logStore.addLog(`Firmware flash completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
-		this.isFlashingFirmware = false;
+		logStore.addLog(
+			`Firmware upload completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
+		);
+
+		// Send case 6 (on-device CRC verification) before case 7.
+		// This sets crc_verified on older firmware that requires it.
+		logStore.addLog('Verifying flash CRC on device...');
+		await this.writeCharacteristic?.writeValue(new Uint8Array([0x06]) as BufferSource);
+		// Wait for the device to read back 128KB of flash and compute CRC
+		await new Promise((resolve) => setTimeout(resolve, 3000));
+
+		logStore.addLog('Sending final flash command: 07C001CEED' + crcHex);
 		await this.writeCharacteristic?.writeValue(hexToBytes('07C001CEED' + crcHex) as BufferSource);
+
+		logStore.addLog('Flash command sent — device should reboot now.');
+
+		this.isFlashingFirmware = false;
 	}
 
 	resetVariables() {
@@ -585,6 +624,8 @@ class BleConnectionStore {
 		this.isUploadingImages = false;
 		this.suppressE5Notifications = false;
 		this.connectedDeviceName = '';
+		this.fastRefreshEnabled = false;
+		this.fastRefreshSupported = false;
 		this.applyDisplayModelInfo(DEFAULT_DISPLAY_INFO, 'default');
 	}
 }

@@ -3,6 +3,7 @@
 	import EpdControlPanel from '../components/EpdControlPanel.svelte';
 	import ImageUploadPanel from '../components/ImageUploadPanel.svelte';
 	import FirmwarePanel from '../components/FirmwarePanel.svelte';
+	import SerialFirmwarePanel from '../components/SerialFirmwarePanel.svelte';
 	import LogPanel from '../components/LogPanel.svelte';
 </script>
 
@@ -12,6 +13,7 @@
 		<EpdControlPanel />
 		<ImageUploadPanel />
 		<FirmwarePanel />
+		<SerialFirmwarePanel />
 	</div>
 	<LogPanel />
 </div>

@@ -222,6 +222,28 @@ _attribute_ram_code_ void cmd_parser(void *p)
 			break;
 		}
 	}
+	else if (inData == 0xE6)
+	{
+		if (payload_len < 2)
+			return;
+
+		if (payload[1] == 0x00)
+		{
+			set_EPD_fast_refresh_enabled(0);
+			settings_dirty = 1;
+		}
+		else if (payload[1] == 0x01)
+		{
+			set_EPD_fast_refresh_enabled(1);
+			settings_dirty = 1;
+		}
+
+		if (payload[1] == 0x00 || payload[1] == 0x01 || payload[1] == 0xAA)
+		{
+			u8 buf[3] = {0xE6, get_EPD_fast_refresh_enabled(), get_EPD_fast_refresh_supported()};
+			bls_att_pushNotifyData(RxTx_CMD_OUT_DP_H, buf, 3);
+		}
+	}
 }
 
 void cmd_parser_flush_settings(void)

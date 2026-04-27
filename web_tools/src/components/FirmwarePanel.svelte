@@ -8,21 +8,26 @@
 
 	function handleFirmwareFile(event: Event) {
 		const input = event.target as HTMLInputElement;
+
 		if (!input.files || !input.files[0]) {
 			logStore.addLog('No file selected');
 			return;
 		}
+
 		const file = input.files[0];
+
 		if (file.size > 512 * 1024) {
 			logStore.addLog('Firmware file too large (max 512KB).');
 			firmwareData = null;
 			return;
 		}
+
 		const reader = new FileReader();
-		reader.readAsArrayBuffer(file);
 		const fileName = file.name;
+
 		reader.onload = function () {
 			const data = new Uint8Array(this.result as ArrayBuffer);
+
 			// Check Telink magic bytes at offset 8..11 (4b4e4c54 = "KNLT")
 			if (
 				data.length < 12 ||
@@ -37,11 +42,15 @@
 				firmwareSize = 0;
 				return;
 			}
+
 			firmwareData = data;
 			firmwareFileName = fileName;
 			firmwareSize = data.length;
+
 			logStore.addLog(`[${fileName}] selected, size: ${data.length} bytes`);
 		};
+
+		reader.readAsArrayBuffer(file);
 	}
 
 	function resetFileInputValue(event: Event) {
@@ -53,14 +62,14 @@
 
 <div class="collapse collapse-arrow bg-base-300 rounded-lg">
 	<input type="radio" name="accordion" />
-	<div class="collapse-title text-lg font-semibold">Flash firmware</div>
+	<div class="collapse-title text-lg font-semibold">BLE firmware flash</div>
 	<div class="collapse-content">
 		<div class="flex flex-col gap-3">
 			<div class="flex flex-col lg:flex-row flex-wrap gap-3">
 				<fieldset class="fieldset p-0">
 					<legend class="fieldset-legend">Select firmware</legend>
 					<input
-						class="file-input file-input-primary file-input-bordered file-input-sm"
+						class="file-input file-input-primary file-input-bordered"
 						type="file"
 						accept=".bin"
 						onchange={handleFirmwareFile}

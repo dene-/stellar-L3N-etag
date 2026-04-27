@@ -34,6 +34,7 @@ void reset_settings_to_default(void)
 	settings.comfort_smiley = true;
 	settings.show_batt_enabled = true;
 	settings.led_flashing_enabled = true; // default to enabled to preserve current behavior
+	settings.fast_refresh_enabled = false;
 	settings.advertising_interval = 6;
 	settings.measure_interval = 10;
 	settings.temp_offset = 0;

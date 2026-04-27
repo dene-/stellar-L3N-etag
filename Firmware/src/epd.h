@@ -8,6 +8,9 @@ void set_EPD_model(uint8_t model_nr);
 uint8_t get_EPD_model(void);
 void set_EPD_scene(uint8_t scene);
 void set_EPD_wait_flush();
+void set_EPD_fast_refresh_enabled(uint8_t enabled);
+uint8_t get_EPD_fast_refresh_enabled(void);
+uint8_t get_EPD_fast_refresh_supported(void);
 void EPD_detect_model(void);
 
 void epd_get_resolution(uint8_t model_nr, uint16_t *width, uint16_t *height);
