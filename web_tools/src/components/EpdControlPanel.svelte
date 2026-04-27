@@ -5,9 +5,13 @@
 
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
 
+	function getLocalUnixTime(date: Date) {
+		return Math.floor((date.getTime() - date.getTimezoneOffset() * 60_000) / 1000);
+	}
+
 	function setTimeNow() {
 		const now = new Date();
-		const unix = Math.floor(now.getTime() / 1000);
+		const unix = getLocalUnixTime(now);
 		const y = now.getFullYear();
 		const m = now.getMonth() + 1;
 		const d = now.getDate();
