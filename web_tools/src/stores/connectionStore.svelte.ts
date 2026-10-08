@@ -38,6 +38,14 @@ export const SCENES = [
 	{ id: 3, name: 'Slideshow' }
 ] as const;
 
+// Slideshow intervals offered for uploads and on the Device page, in seconds.
+export const SLIDESHOW_INTERVALS: { value: number; label: string }[] = [
+	{ value: 30, label: '30 s' },
+	{ value: 60, label: '1 min' },
+	{ value: 300, label: '5 min' },
+	{ value: 3600, label: '1 h' }
+];
+
 const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.model, info]));
 
 // Assumed until the device reports its model (E2 AB) after connecting.
@@ -130,6 +138,10 @@ class BleConnectionStore {
 	// Reported by firmware v0.10.0 on (E1 AA, E3 AA); otherwise only known once set from this page.
 	activeScene: number | null = $state(null);
 	ledFlashingEnabled: boolean | null = $state(null);
+	// Stored images and the slideshow interval in seconds (E9 AA, firmware v0.14.0 on); null until
+	// the tag replies.
+	storedImageCount: number | null = $state(null);
+	slideshowIntervalSeconds: number | null = $state(null);
 	// Firmware version the tag reports (E8), e.g. "0.10.0"; null before v0.10.0, which doesn't.
 	firmwareVersion: string | null = $state(null);
 	// Set once the queries after connecting are done, so a missing reply means old firmware.
@@ -341,6 +353,13 @@ class BleConnectionStore {
 				return;
 			}
 
+			if (data.byteLength === 5 && data[0] === 0xe9 && data[1] === 0xaa) {
+				this.storedImageCount = data[2];
+				// 0 means the default, a minute.
+				this.slideshowIntervalSeconds = data[3] | (data[4] << 8) || 60;
+				return;
+			}
+
 			if (data.byteLength >= 3 && data[0] === 0xe8) {
 				this.firmwareVersion = new TextDecoder().decode(data.subarray(1));
 				logStore.addLog(`[From display][RXTX]: Firmware ${this.firmwareVersion}`);
@@ -434,10 +453,11 @@ class BleConnectionStore {
 		logStore.addLog('Querying display model...');
 		await this.sendRxTxCommand('e2ab');
 		await this.queryFastRefreshInfo();
-		// Firmware before v0.9.0 ignores E7, before v0.10.0 also E1 AA, E3 AA and E8.
+		// Firmware before v0.9.0 ignores E7, before v0.10.0 also E1 AA, E3 AA and E8, before v0.14.0 E9.
 		await this.sendRxTxCommand('e7aa');
 		await this.sendRxTxCommand('e1aa');
 		await this.sendRxTxCommand('e3aa');
+		await this.sendRxTxCommand('e9aa');
 		await this.sendRxTxCommand('e8');
 	}
 
@@ -478,6 +498,12 @@ class BleConnectionStore {
 
 	async setLedFlashing(enabled: boolean) {
 		if (await this.sendRxTxCommand(enabled ? 'e301' : 'e300')) this.ledFlashingEnabled = enabled;
+	}
+
+	// Seconds between slideshow images; the tag replies with the stored value (E9 AA).
+	async setSlideshowInterval(seconds: number) {
+		this.slideshowIntervalSeconds = seconds;
+		await this.sendRxTxCommand(`e901${intToHex(seconds & 0xff, 1)}${intToHex(seconds >> 8, 1)}`);
 	}
 
 	async playLedRainbow(play: boolean) {
@@ -651,6 +677,12 @@ class BleConnectionStore {
 			const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 
 			this.imageUploadProgress = 100;
+			// The tag now shows the upload: one image, or the slideshow for several.
+			this.activeScene = images.length > 1 ? 3 : 0;
+			if (this.storedImageCount !== null) {
+				this.storedImageCount = images.length;
+				this.slideshowIntervalSeconds = slideshowInterval || 60;
+			}
 			logStore.addLog(
 				images.length > 1
 					? `Slideshow uploaded in ${elapsed}s. Interval: ${slideshowInterval}s`
@@ -942,6 +974,8 @@ class BleConnectionStore {
 		this.timeSyncedAt = null;
 		this.activeScene = null;
 		this.ledFlashingEnabled = null;
+		this.storedImageCount = null;
+		this.slideshowIntervalSeconds = null;
 		this.firmwareVersion = null;
 		this.firmwareVersionQueried = false;
 	}

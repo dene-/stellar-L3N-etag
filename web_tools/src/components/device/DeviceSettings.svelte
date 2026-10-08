@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { bleConnectionStore, DISPLAY_MODEL_OPTIONS } from '../../stores/connectionStore.svelte';
+	import {
+		bleConnectionStore,
+		DISPLAY_MODEL_OPTIONS,
+		SLIDESHOW_INTERVALS
+	} from '../../stores/connectionStore.svelte';
 	import Toggle from '../ui/Toggle.svelte';
 
 	const store = bleConnectionStore;
@@ -9,6 +13,31 @@
 	// Firmware before v0.9.0 does not answer E7.
 	let clockSupported = $derived(store.clockIntervalMinutes !== null);
 	const CLOCK_INTERVALS = [1, 2, 5, 10, 15, 30, 60];
+
+	// Controls follow the screen on the tag; firmware before v0.10.0 doesn't say which, so all show.
+	let showsClock = $derived(
+		store.activeScene === null || store.activeScene === 1 || store.activeScene === 2
+	);
+	let showsImages = $derived(store.activeScene === 0 || store.activeScene === 3);
+	// Firmware before v0.14.0 does not answer E9.
+	let imagesKnown = $derived(store.storedImageCount !== null);
+	let intervalOptions = $derived(
+		store.slideshowIntervalSeconds === null ||
+			SLIDESHOW_INTERVALS.some((option) => option.value === store.slideshowIntervalSeconds)
+			? SLIDESHOW_INTERVALS
+			: [
+					...SLIDESHOW_INTERVALS,
+					{ value: store.slideshowIntervalSeconds, label: `${store.slideshowIntervalSeconds} s` }
+				].sort((a, b) => a.value - b.value)
+	);
+
+	function picturesHint() {
+		if (!imagesKnown) return 'Needs firmware v0.14.0 to show what is stored';
+		if (!store.storedImageCount) return 'None stored yet';
+		return store.storedImageCount === 1
+			? '1 stored on the tag'
+			: `${store.storedImageCount} stored on the tag`;
+	}
 
 	function modelLabel(option: (typeof DISPLAY_MODEL_OPTIONS)[number]) {
 		if (option.model !== 0) return `${option.name} · ${option.width}×${option.height}`;
@@ -34,45 +63,78 @@
 		</select>
 	</label>
 
-	<Toggle
-		label="Fast refresh"
-		hint={store.fastRefreshSupported
-			? 'Fewer full refreshes on the clock screens; more ghosting'
-			: 'Not supported by this display'}
-		checked={store.fastRefreshEnabled}
-		disabled={store.busy || !store.fastRefreshSupported}
-		onchange={(enabled) => store.setFastRefreshEnabled(enabled)}
-	/>
+	{#if showsClock}
+		<Toggle
+			label="Fast refresh"
+			hint={store.fastRefreshSupported
+				? 'Fewer full refreshes on the clock screens; more ghosting'
+				: 'Not supported by this display'}
+			checked={store.fastRefreshEnabled}
+			disabled={store.busy || !store.fastRefreshSupported}
+			onchange={(enabled) => store.setFastRefreshEnabled(enabled)}
+		/>
 
-	<label class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
-		<span class="flex flex-col">
-			<span class="text-[0.95rem]">Clock refresh</span>
-			<span class="text-sm text-muted">
-				{clockSupported ? 'How often the clock screens show a new time' : 'Needs firmware v0.9.0'}
+		<label class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+			<span class="flex flex-col">
+				<span class="text-[0.95rem]">Clock refresh</span>
+				<span class="text-sm text-muted">
+					{clockSupported ? 'How often the clock screens show a new time' : 'Needs firmware v0.9.0'}
+				</span>
 			</span>
-		</span>
-		<select
-			class="field w-auto min-w-44"
-			value={store.clockIntervalMinutes ?? 1}
-			disabled={store.busy || !clockSupported}
-			onchange={(event) =>
-				store.setClockSchedule(Number(event.currentTarget.value), store.clockSync === true)}
-		>
-			{#each CLOCK_INTERVALS as minutes (minutes)}
-				<option value={minutes}
-					>{minutes === 1 ? 'Every minute' : `Every ${minutes} minutes`}</option
-				>
-			{/each}
-		</select>
-	</label>
+			<select
+				class="field w-auto min-w-44"
+				value={store.clockIntervalMinutes ?? 1}
+				disabled={store.busy || !clockSupported}
+				onchange={(event) =>
+					store.setClockSchedule(Number(event.currentTarget.value), store.clockSync === true)}
+			>
+				{#each CLOCK_INTERVALS as minutes (minutes)}
+					<option value={minutes}
+						>{minutes === 1 ? 'Every minute' : `Every ${minutes} minutes`}</option
+					>
+				{/each}
+			</select>
+		</label>
 
-	<Toggle
-		label="Finish on the minute"
-		hint="Starts each refresh early, so the new time appears as the minute changes"
-		checked={store.clockSync}
-		disabled={store.busy || !clockSupported}
-		onchange={(enabled) => store.setClockSchedule(store.clockIntervalMinutes ?? 1, enabled)}
-	/>
+		<Toggle
+			label="Finish on the minute"
+			hint="Starts each refresh early, so the new time appears as the minute changes"
+			checked={store.clockSync}
+			disabled={store.busy || !clockSupported}
+			onchange={(enabled) => store.setClockSchedule(store.clockIntervalMinutes ?? 1, enabled)}
+		/>
+	{/if}
+
+	{#if showsImages}
+		<div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+			<span class="flex flex-col">
+				<span class="text-[0.95rem]">Pictures</span>
+				<span class="text-sm text-muted">{picturesHint()}</span>
+			</span>
+			<a class="btn btn-outline" href="#images">Send pictures</a>
+		</div>
+	{/if}
+
+	{#if store.activeScene === 3}
+		<label class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+			<span class="flex flex-col">
+				<span class="text-[0.95rem]">Next picture every</span>
+				<span class="text-sm text-muted">
+					{imagesKnown ? 'Saved with the pictures on the tag' : 'Needs firmware v0.14.0'}
+				</span>
+			</span>
+			<select
+				class="field w-auto min-w-44"
+				value={store.slideshowIntervalSeconds ?? 60}
+				disabled={store.busy || !imagesKnown || !store.storedImageCount}
+				onchange={(event) => store.setSlideshowInterval(Number(event.currentTarget.value))}
+			>
+				{#each intervalOptions as option (option.value)}
+					<option value={option.value}>{option.label}</option>
+				{/each}
+			</select>
+		</label>
+	{/if}
 
 	<Toggle
 		label="Status light"

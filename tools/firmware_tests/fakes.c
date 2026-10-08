@@ -205,6 +205,14 @@ void image_store_clear(void)
     fake_store_plane_size = 0;
 }
 
+uint8_t image_store_set_interval_seconds(uint16_t interval_seconds)
+{
+    if (!store_has_images)
+        return 0;
+    fake_store_interval = interval_seconds;
+    return 1;
+}
+
 uint8_t image_store_has_images(void)
 {
     return store_has_images;

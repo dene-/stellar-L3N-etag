@@ -31,3 +31,18 @@ void image_upload_clear(void)
     image_store_clear();
     screen_set_scene(SCREEN_SCENE_DASHBOARD);
 }
+
+uint8_t image_upload_stored_count(void)
+{
+    return image_store_get_image_count();
+}
+
+uint16_t image_upload_interval(void)
+{
+    return image_store_get_interval_seconds();
+}
+
+uint8_t image_upload_set_interval(uint16_t interval_seconds)
+{
+    return image_store_set_interval_seconds(interval_seconds);
+}

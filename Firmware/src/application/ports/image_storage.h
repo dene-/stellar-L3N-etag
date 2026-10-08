@@ -14,6 +14,8 @@ uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t off
 // wrote read as 0xFF, so an upload may leave out chunks that are all 0xFF.
 uint8_t image_store_finalize(void);
 void image_store_clear(void);
+// Rewrites the header with a new slideshow interval; 0 if no images are stored.
+uint8_t image_store_set_interval_seconds(uint16_t interval_seconds);
 
 uint8_t image_store_has_images(void);
 uint8_t image_store_get_image_count(void);

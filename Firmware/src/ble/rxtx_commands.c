@@ -246,6 +246,31 @@ static void report_version(const uint8_t *payload, uint16_t length)
 	notify(reply, 1 + count);
 }
 
+// E9 AA: replies E9 AA <stored images> <slideshow interval:2 LE>, in seconds (0 = a minute).
+// E9 01 <interval:2 LE>: change the slideshow interval of the stored images; replies like E9 AA.
+static void stored_images(const uint8_t *payload, uint16_t length)
+{
+	uint16_t interval;
+	uint8_t reply[5];
+
+	if (payload[1] == 0x01)
+	{
+		if (length < 4)
+			return;
+		image_upload_set_interval(payload[2] | (payload[3] << 8));
+	}
+	else if (payload[1] != 0xAA)
+		return;
+
+	interval = image_upload_interval();
+	reply[0] = 0xE9;
+	reply[1] = 0xAA;
+	reply[2] = image_upload_stored_count();
+	reply[3] = interval & 0xFF;
+	reply[4] = interval >> 8;
+	notify(reply, sizeof(reply));
+}
+
 static const rxtx_command_t commands[] = {
 	{0xB1, 2, show_pattern},
 	{0xDD, SET_TIME_ZONE_START, set_time},
@@ -260,6 +285,7 @@ static const rxtx_command_t commands[] = {
 	{0xE6, 2, fast_refresh},
 	{0xE7, 2, clock_schedule},
 	{0xE8, 1, report_version},
+	{0xE9, 2, stored_images},
 };
 
 _attribute_ram_code_ int rxtx_commands_write(void *p)

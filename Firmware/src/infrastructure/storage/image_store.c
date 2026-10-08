@@ -295,6 +295,25 @@ uint8_t image_store_finalize(void)
   return 1;
 }
 
+// The header has the first sector to itself (the images start at IMAGE_STORE_DATA_ADDR), so it is
+// rewritten in place; a power loss between the erase and the write drops the images.
+uint8_t image_store_set_interval_seconds(uint16_t interval_seconds)
+{
+  if (!image_store_ready)
+  {
+    return 0;
+  }
+  if (image_store_header.interval_seconds == interval_seconds)
+  {
+    return 1;
+  }
+  image_store_header.interval_seconds = interval_seconds;
+  image_store_header.checksum = image_store_checksum(&image_store_header);
+  flash_erase_sector(IMAGE_STORE_BASE_ADDR);
+  image_store_write_bytes(IMAGE_STORE_BASE_ADDR, (const uint8_t *)&image_store_header, sizeof(image_store_header));
+  return 1;
+}
+
 uint8_t image_store_has_images(void)
 {
   return image_store_ready;

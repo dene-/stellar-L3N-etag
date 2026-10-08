@@ -29,9 +29,11 @@ Connecting opens the browser's Bluetooth picker, which lists only tags (names st
 `THX`). The tool has three pages:
 
 - **Device**: what the tag shows (all four screens as cards; the one on the tag is marked "On
-  screen"), its name, firmware version, temperature and battery, the display model, how often and
-  when the clock refreshes, fast refresh and the status light. Connecting also sets the tag's clock
-  and time zone.
+  screen"), its name, firmware version, temperature and battery, the display model and the status
+  light. The other settings follow the screen on the tag: on the clock screens how often and when
+  the clock refreshes and fast refresh, on the image and slideshow screens how many pictures are
+  stored, and in the slideshow how long each picture stays (changed without uploading again, from
+  v0.14.0). Connecting also sets the tag's clock and time zone.
 - **Images**: converts pictures for the panel with a choice of dithering, and sends one picture or
   a slideshow. Pictures can be prepared before connecting.
 - **Firmware**: shows the version on the tag and whether a newer release exists, and installs a
@@ -189,6 +191,7 @@ unless noted.
 | `E6 00\|01\|AA` | Fast refresh off/on/query; replies `E6 <enabled> <supported>` |
 | `E7 <minutes> <sync>`, `E7 AA` | Show a new clock time every 1 to 60 minutes; sync `01` ends refreshes on the minute. `AA` queries; replies `E7 <minutes> <sync>` |
 | `E8` | Reply `E8 <version>`, the firmware version in ASCII (`0.10.0`) |
+| `E9 AA`, `E9 01 <seconds:2>` | Query the stored images, or change their slideshow interval; replies `E9 AA <images> <seconds:2>` (0 seconds = a minute) |
 
 Firmware updates use characteristic `0x331F` of service `0x221F`; `Firmware/src/ble/ota_service.c`
 describes the protocol.

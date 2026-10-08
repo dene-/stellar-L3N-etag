@@ -8,7 +8,7 @@
 		type PhotoItem
 	} from '#lib/photo-utils.ts';
 	import { renderAndBuildBuffers, renderPhotoToCanvas } from '#lib/rendering.ts';
-	import { bleConnectionStore } from '../../stores/connectionStore.svelte';
+	import { bleConnectionStore, SLIDESHOW_INTERVALS } from '../../stores/connectionStore.svelte';
 	import { logStore } from '../../stores/logStore.svelte';
 	import FileDrop from '../ui/FileDrop.svelte';
 	import Icon from '../ui/Icon.svelte';
@@ -28,12 +28,6 @@
 		['TwoSierra', 'Two-row Sierra'],
 		['SierraLite', 'Sierra Lite']
 	] as const;
-	const INTERVALS: { value: number; label: string }[] = [
-		{ value: 30, label: '30 s' },
-		{ value: 60, label: '1 min' },
-		{ value: 300, label: '5 min' },
-		{ value: 3600, label: '1 h' }
-	];
 
 	let photos = $state<PhotoItem[]>([]);
 	let selected = $state(0);
@@ -337,8 +331,8 @@
 				<span class="eyebrow">Next picture every</span>
 				<Segmented
 					label="Slideshow interval"
-					options={INTERVALS}
-					value={INTERVALS.some((option) => option.value === intervalSeconds)
+					options={SLIDESHOW_INTERVALS}
+					value={SLIDESHOW_INTERVALS.some((option) => option.value === intervalSeconds)
 						? intervalSeconds
 						: null}
 					onchange={(value) => (intervalSeconds = value)}
