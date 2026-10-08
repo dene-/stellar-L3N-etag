@@ -693,7 +693,7 @@ class BleConnectionStore {
 			await ota.writeValueWithResponse(pkt);
 		}
 
-		// Commit this page to flash
+		// Commit this page to flash; the tag writes it before it acknowledges the write.
 		const commitPkt = new Uint8Array(5);
 		commitPkt[0] = 0x02;
 		commitPkt[1] = (address >> 24) & 0xff;
@@ -701,10 +701,28 @@ class BleConnectionStore {
 		commitPkt[3] = (address >> 8) & 0xff;
 		commitPkt[4] = address & 0xff;
 		await ota.writeValueWithResponse(commitPkt);
+	}
 
-		const { promise: settled, resolve } = Promise.withResolvers<void>();
-		setTimeout(resolve, 50);
-		await settled;
+	// Firmware v0.11.0 on: command 08 <bank offset:3> <data> written without response, so several go
+	// out per connection event and the tag erases each sector when the stream reaches it. Every 16th
+	// write waits for its response, which paces the stream to the tag's flash. 176 data bytes keep
+	// each write within the smallest ATT MTU the browser may negotiate (185).
+	private async streamFirmware(ota: BluetoothRemoteGATTCharacteristic, data: Uint8Array) {
+		const chunkSize = 176;
+		const count = Math.ceil(data.length / chunkSize);
+		for (let index = 0; index < count; index++) {
+			const offset = index * chunkSize;
+			const chunk = data.subarray(offset, offset + chunkSize);
+			const packet = new Uint8Array(4 + chunk.length);
+			packet[0] = 0x08;
+			packet[1] = (offset >> 16) & 0xff;
+			packet[2] = (offset >> 8) & 0xff;
+			packet[3] = offset & 0xff;
+			packet.set(chunk, 4);
+			if (index % 16 === 15 || index === count - 1) await ota.writeValueWithResponse(packet);
+			else await ota.writeValueWithoutResponse(packet);
+			this.firmwareUploadProgress = ((index + 1) / count) * 100;
+		}
 	}
 
 	// Writes `packet` and waits for the first notification on the same characteristic accepted by
@@ -788,32 +806,37 @@ class BleConnectionStore {
 			// Replies (CRC result, rejection) come back as notifications on this characteristic.
 			await ota.startNotifications();
 
-			await this.eraseFwArea(ota);
+			if (ota.properties.writeWithoutResponse) {
+				logStore.addLog('Streaming firmware...');
+				await this.streamFirmware(ota, data);
+			} else {
+				await this.eraseFwArea(ota);
+				logStore.addLog('Flashing firmware page by page (firmware before v0.11.0)...');
+				let offset = 0;
+				while (offset < data.length) {
+					const pageData = data.subarray(offset, offset + pageSize);
+					await this.sendPart(ota, address + offset, pageData);
+					offset += pageData.length;
+					this.firmwareUploadProgress = (offset / data.length) * 100;
+				}
 
-			logStore.addLog('Flashing firmware... wait a little.');
-
-			let offset = 0;
-			while (offset < data.length) {
-				const pageData = data.subarray(offset, offset + pageSize);
-				await this.sendPart(ota, address + offset, pageData);
-				offset += pageData.length;
-				this.firmwareUploadProgress = (offset / data.length) * 100;
+				// Firmware built before April 2026 compares the CRC of command 07 with bytes 5-6 of its
+				// last reply buffer instead of the command itself, so it never flashes and never answers.
+				// Stage the CRC there: command 03 puts it at offset 5 of the page buffer, command 05
+				// copies that buffer into the reply buffer, and command 06 below only overwrites bytes 0-2.
+				await ota.writeValueWithResponse(
+					new Uint8Array([0x03, 0, 0, 0, 0, 0, crc >> 8, crc & 0xff])
+				);
+				await this.writeAndAwaitReply(
+					ota,
+					new Uint8Array([0x05, 0, 0, 0, 0]),
+					(d) => d.length === 20,
+					3000
+				);
 			}
 
 			logStore.addLog(
 				`Firmware upload completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
-			);
-
-			// Firmware built before April 2026 compares the CRC of command 07 with bytes 5-6 of its last
-			// reply buffer instead of the command itself, so it never flashes and never answers. Stage the
-			// CRC there: command 03 puts it at offset 5 of the page buffer, command 05 copies that buffer
-			// into the reply buffer, and command 06 below only overwrites bytes 0-2. Harmless on newer firmware.
-			await ota.writeValueWithResponse(new Uint8Array([0x03, 0, 0, 0, 0, 0, crc >> 8, crc & 0xff]));
-			await this.writeAndAwaitReply(
-				ota,
-				new Uint8Array([0x05, 0, 0, 0, 0]),
-				(d) => d.length === 20,
-				3000
 			);
 
 			// Command 06: device sums the uploaded bank and replies 07 <crc hi> <crc lo>.

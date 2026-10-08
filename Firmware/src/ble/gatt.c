@@ -136,9 +136,9 @@ static const u8 my_tempCharVal[5] = {
 	U16_LO(0x2A1F), U16_HI(0x2A1F)
 };
 
-//// OTA attribute values
+//// OTA attribute values; writes without response stream the image (command 08, see ota_service.c)
 static const u8 my_OtaCharVal[5] = {
-	CHAR_PROP_NOTIFY | CHAR_PROP_WRITE,
+	CHAR_PROP_NOTIFY | CHAR_PROP_WRITE | CHAR_PROP_WRITE_WITHOUT_RSP,
 	U16_LO(OTA_CMD_OUT_DP_H), U16_HI(OTA_CMD_OUT_DP_H),
 	U16_LO(0x331f), U16_HI(0x331f)
 };

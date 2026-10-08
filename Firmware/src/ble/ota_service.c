@@ -11,8 +11,14 @@
 // writes it to the spare bank (the one it did not boot from), so the running firmware stays intact
 // until the new one is complete and verified. The boot flag (byte 8) of the new image is held back
 // until then: an interrupted upload leaves a bank the boot ROM ignores.
+//
+// Two ways to upload: per 256-byte page (erase 01, append 03, write 02), which every firmware
+// understands, or streamed with command 08 (offset and data in one write, sectors erased as the
+// upload reaches them), which the web flasher uses when the characteristic accepts writes without
+// response (firmware from v0.11.0). Both end with the checksum (06) and the start command (07).
 #define OTA_STAGING_ADDRESS 0x20000
 #define OTA_LAST_PAGE (OTA_STAGING_ADDRESS + FIRMWARE_BANK_SIZE - 0x100) // never written
+#define OTA_SECTOR_SIZE 0x1000
 
 static RAM uint8_t ota_started = 0;
 static RAM uint8_t out_buffer[20] = {0};
@@ -21,6 +27,9 @@ static RAM uint16_t ram_position = 0;
 static RAM uint16_t crc_out = 0;
 static RAM uint32_t spare_bank;
 static RAM uint8_t image_flag = 0xFF; // byte 8 of the uploaded image, written last
+// Sectors of the spare bank erased during this upload, one bit per 4 KiB (32 in a bank).
+static RAM uint32_t erased_sectors;
+typedef char erased_sectors_check[(FIRMWARE_BANK_SIZE / OTA_SECTOR_SIZE <= 32) ? 1 : -1];
 
 _attribute_ram_code_ static void copy_to_bank_0_and_reboot(void);
 _attribute_ram_code_ static void reboot(void);
@@ -35,10 +44,26 @@ static uint32_t to_spare_bank(uint32_t address)
 	return spare_bank + (address - OTA_STAGING_ADDRESS);
 }
 
-// 16-bit byte sum of the whole image as sent (matches calculateCRC in the web flasher).
+// Erases the sector of the spare bank holding bank offset `offset` unless this upload already did.
+_attribute_ram_code_ static void erase_sector_once(uint32_t offset)
+{
+	uint32_t bit = 1UL << (offset / OTA_SECTOR_SIZE);
+
+	if (erased_sectors & bit)
+		return;
+	flash_erase_sector(spare_bank + (offset & ~(OTA_SECTOR_SIZE - 1)));
+	erased_sectors |= bit;
+	if (offset < OTA_SECTOR_SIZE)
+		image_flag = 0xFF;
+}
+
+// 16-bit byte sum of the whole image as sent (matches calculateCRC in the web flasher). Sectors the
+// upload never reached are erased first, so the bank past the image reads 0xFF.
 _attribute_ram_code_ static uint16_t ota_bank_checksum(void)
 {
 	uint16_t sum = 0;
+	for (uint32_t i = 0; i < FIRMWARE_BANK_SIZE; i += OTA_SECTOR_SIZE)
+		erase_sector_once(i);
 	for (uint32_t i = 0; i < FIRMWARE_BANK_SIZE; i += 0x100)
 	{
 		flash_read_page(spare_bank + i, sizeof(ramd_to_flash_temp_buffer), ramd_to_flash_temp_buffer);
@@ -91,6 +116,39 @@ static void install(void)
 _attribute_ram_code_ void ota_service_reset(void)
 {
 	ota_started = 0;
+	erased_sectors = 0;
+}
+
+// Command 08: programs data at bank offset `offset`, erasing each sector the first time the upload
+// reaches it. The boot flag is held back like in command 02. Returns 0 if the range is not staged.
+_attribute_ram_code_ static uint8_t write_at(uint32_t offset, const uint8_t *data, uint8_t length)
+{
+	uint32_t end = offset + length;
+
+	if (!length || end > OTA_LAST_PAGE - OTA_STAGING_ADDRESS)
+		return 0;
+	if (offset == 0)
+		erased_sectors = 0; // a new upload (offset 0 always comes first): erase everything again
+	erase_sector_once(offset);
+	erase_sector_once(end - 1);
+	memcpy(ramd_to_flash_temp_buffer, data, length);
+	if (offset <= FIRMWARE_FLAG_OFFSET && end > FIRMWARE_FLAG_OFFSET)
+	{
+		image_flag = ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET - offset];
+		ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET - offset] = 0xFF;
+	}
+	// A page program wraps at the end of its 256-byte page, so split there.
+	for (uint32_t done = 0; done < length;)
+	{
+		uint32_t at = offset + done;
+		uint32_t count = 0x100 - (at & 0xFF);
+
+		if (count > length - done)
+			count = length - done;
+		flash_write_page(spare_bank + at, count, &ramd_to_flash_temp_buffer[done]);
+		done += count;
+	}
+	return 1;
 }
 
 _attribute_ram_code_ int ota_service_write(void *p)
@@ -127,8 +185,11 @@ _attribute_ram_code_ int ota_service_write(void *p)
 		crc_out = 0;
 		if (staged(address))
 		{
-			flash_erase_sector(to_spare_bank(address));
-			if (address - OTA_STAGING_ADDRESS < 0x1000)
+			uint32_t offset = address - OTA_STAGING_ADDRESS;
+
+			flash_erase_sector(spare_bank + (offset & ~(OTA_SECTOR_SIZE - 1)));
+			erased_sectors |= 1UL << (offset / OTA_SECTOR_SIZE);
+			if (offset < OTA_SECTOR_SIZE)
 				image_flag = 0xFF;
 		}
 		memset(ramd_to_flash_temp_buffer, 0x00, sizeof(ramd_to_flash_temp_buffer));
@@ -198,6 +259,11 @@ _attribute_ram_code_ int ota_service_write(void *p)
 		}
 		install();
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
+		break;
+	case 8: // program data at a bank offset: 08 <offset:3> <data…>, see write_at()
+		crc_out = 0;
+		if (data_len >= 5)
+			write_at(((uint32_t)payload[1] << 16) | (payload[2] << 8) | payload[3], &payload[4], data_len - 4);
 		break;
 	}
 

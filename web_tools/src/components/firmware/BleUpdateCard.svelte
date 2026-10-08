@@ -17,7 +17,7 @@
 		<p class="eyebrow">01 · Bluetooth</p>
 		<h2 class="text-2xl">Update over Bluetooth</h2>
 		<p class="text-soft">
-			Takes about a minute. If the upload fails, the tag keeps running its current firmware.
+			Takes up to a minute. If the upload fails, the tag keeps running its current firmware.
 		</p>
 		{#if store.connected}
 			<FirmwareStatus />

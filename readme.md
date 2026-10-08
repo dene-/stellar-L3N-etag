@@ -76,6 +76,11 @@ and only started once its checksum matches, so a failed or interrupted upload le
 firmware in place. Firmware before v0.8.0 copies the update over itself instead: the first update
 from such a version still must not lose power while it runs.
 
+Firmware from v0.11.0 on receives the update as a stream: the web tool sends the image in writes
+that need no acknowledgement, several per Bluetooth connection event, and the tag erases each flash
+sector as the stream reaches it. Older firmware takes it one 256-byte page at a time, waiting for
+each step; the update that installs v0.11.0 still runs that way.
+
 ## Clock
 
 The tag keeps UTC. On every connect the web tool sends the time, the browser's time zone offset and
