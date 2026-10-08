@@ -19,7 +19,7 @@ type StoredImageBuffers = {
 };
 
 export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
-	{ model: 0, name: 'Auto detect', width: 250, height: 128 },
+	{ model: 0, name: 'Auto detect (not for 2.9")', width: 250, height: 128 },
 	{ model: 1, name: 'BW213', width: 250, height: 128 },
 	{ model: 2, name: 'BWR213', width: 250, height: 128 },
 	{ model: 3, name: 'BWR154', width: 200, height: 200 },
@@ -29,7 +29,8 @@ export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
 
 const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.model, info]));
 
-const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(2)!;
+// Matches EPD_DEFAULT_MODEL in Firmware/src/epd.h until the device reports its model.
+const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(5)!;
 
 // OTA layout, mirrors OTA_BANK_START/OTA_MAX_SIZE in Firmware/src/ota.c. The last 256 byte
 // page of the bank is never written by the device, so the largest image is one page shorter.

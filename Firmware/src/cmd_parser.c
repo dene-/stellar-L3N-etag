@@ -86,10 +86,11 @@ _attribute_ram_code_ void cmd_parser(void *p)
 		save_settings_to_flash();
 	}
 	else if (inData == 0xE0)
-	{ // force set an EPD model, if it wasnt detect automatically correct
-		if (payload_len < 2 || payload[1] > 5)
+	{ // select the display driver (EPD_MODEL_*); 0 = auto-detect. Persisted.
+		if (payload_len < 2 || payload[1] > EPD_MODEL_BWR296)
 			return;
 		set_EPD_model(payload[1]);
+		settings_dirty = 1;
 	}
 	else if (inData == 0xE1)
 	{ // force set an EPD scene

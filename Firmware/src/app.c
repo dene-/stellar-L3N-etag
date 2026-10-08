@@ -31,6 +31,7 @@ _attribute_ram_code_ void user_init_normal(void)
     init_time();
     init_ble();
     init_flash();
+    set_EPD_model(settings.epd_model);
     image_store_init();
     init_nfc();
 

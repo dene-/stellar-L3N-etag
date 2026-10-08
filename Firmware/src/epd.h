@@ -13,6 +13,20 @@ enum
     EPD_SCENE_SLIDESHOW = 3, // cycle through uploaded images
 };
 
+// Display drivers (command E0 <model>, reported by E2 AB).
+enum
+{
+    EPD_MODEL_AUTO = 0, // detect on first use; unreliable, see EPD_detect_model()
+    EPD_MODEL_BW213 = 1,
+    EPD_MODEL_BWR213 = 2,
+    EPD_MODEL_BWR154 = 3,
+    EPD_MODEL_BW213_ICE = 4,
+    EPD_MODEL_BWR296 = 5,
+};
+
+// This firmware targets the Stellar L3N@ 2.9" tag (SSD1680, which auto-detection cannot identify).
+#define EPD_DEFAULT_MODEL EPD_MODEL_BWR296
+
 void set_EPD_model(uint8_t model_nr);
 uint8_t get_EPD_model(void);
 void set_EPD_scene(uint8_t scene);

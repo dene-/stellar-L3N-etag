@@ -129,10 +129,12 @@ static uint16_t epd_get_model_buffer_size(uint8_t model_nr)
     return (width * height) / 8;
 }
 
-// With this we can force a display if it wasnt detected correctly
+// Selects the display driver and remembers it in settings (persisted by the caller);
+// EPD_MODEL_AUTO detects the panel on next use.
 void set_EPD_model(uint8_t model_nr)
 {
     epd_model = model_nr;
+    settings.epd_model = model_nr;
     epd_temperature_is_read = 0;
     epd_temperature_read_time = 0;
     set_EPD_wait_flush(); // new resolution: redraw the scene with a full refresh
@@ -184,7 +186,10 @@ void set_EPD_wait_flush()
     epd_wait_update = 1;
 }
 
-// Here we detect what E-Paper display is connected
+// Auto-detection (model 0 only). It cannot identify SSD1680-based panels: the SSD1680 has no
+// "read LUT" command (0x33), so both LUT tests below fail, and its status register (0x2F) reads
+// 0x01 like the 2.13" ICE, so a 2.9" BWR296 comes out as model 4. Those tags need the model set
+// explicitly; settings.epd_model defaults to EPD_DEFAULT_MODEL.
 _attribute_ram_code_ void EPD_detect_model(void)
 {
     EPD_init();

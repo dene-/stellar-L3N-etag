@@ -6,6 +6,7 @@
 #include "app_config.h"
 #include "drivers/8258/gpio_8258.h"
 
+#include "epd.h"
 #include "flash.h"
 
 #define MAGIC_WORD 0xABCFF123
@@ -39,6 +40,7 @@ void reset_settings_to_default(void)
 	settings.measure_interval = 10;
 	settings.temp_offset = 0;
 	settings.temp_alarm_point = 5;
+	settings.epd_model = EPD_DEFAULT_MODEL;
 }
 
 void save_settings_to_flash(void)
