@@ -4,8 +4,13 @@
 	import FileDrop from '../ui/FileDrop.svelte';
 	import Icon from '../ui/Icon.svelte';
 
-	type Props = { file: FirmwareFile | null; maxBytes: number; disabled?: boolean };
-	let { file = $bindable(), maxBytes, disabled = false }: Props = $props();
+	type Props = {
+		file: FirmwareFile | null;
+		maxBytes: number;
+		disabled?: boolean;
+		onpick?: (file: FirmwareFile | null) => void;
+	};
+	let { file = $bindable(), maxBytes, disabled = false, onpick }: Props = $props();
 
 	async function pick(files: File[]) {
 		try {
@@ -15,6 +20,7 @@
 			file = null;
 			logStore.addLog(error instanceof Error ? error.message : String(error));
 		}
+		onpick?.(file);
 	}
 </script>
 

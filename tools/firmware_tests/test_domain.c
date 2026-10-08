@@ -86,7 +86,8 @@ static void test_refresh_policy(void)
     CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
 }
 
-// Fast mode: only an unknown panel content or a red change forces a full refresh.
+// Fast mode: only an unknown panel content, a red change or a requested redraw (scene switch) forces
+// a full refresh.
 static void test_refresh_policy_fast(void)
 {
     enum { SIZE = 64 };
@@ -102,10 +103,11 @@ static void test_refresh_policy_fast(void)
     CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_FULL);
     CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_SKIP);
 
-    // A requested redraw is partial, changed or not.
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_PARTIAL);
+    // A requested redraw (scene switch, "Redraw") is full, changed or not: a partial refresh of a
+    // whole new picture leaves the old one showing through.
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_FULL);
     black[3] = 0x00;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_PARTIAL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_FULL);
 
     // No periodic anti-ghosting full refresh: twice the interval of changes stays partial.
     for (i = 0; i < 2 * REFRESH_POLICY_FULL_INTERVAL; i++)

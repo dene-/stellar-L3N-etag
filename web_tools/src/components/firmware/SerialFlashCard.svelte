@@ -3,7 +3,7 @@
 	import type { FirmwareFile } from '#lib/firmware-file.ts';
 	import { TlsrSerialFlasher } from '#lib/tlsr-serial-flasher.ts';
 	import { logStore } from '../../stores/logStore.svelte';
-	import FirmwareFilePicker from './FirmwareFilePicker.svelte';
+	import FirmwareSource from './FirmwareSource.svelte';
 
 	const WIRING = 'https://github.com/dene-/stellar-L3N-etag#first-install-uart';
 	const IDLE_STATUS = 'Open the serial port of your USB adapter to start.';
@@ -102,7 +102,7 @@
 			</button>
 		</div>
 
-		<FirmwareFilePicker bind:file maxBytes={512 * 1024} disabled={busy} />
+		<FirmwareSource bind:file maxBytes={512 * 1024} disabled={busy} />
 
 		<div class="mt-auto flex flex-col gap-3">
 			<div class="flex gap-3">

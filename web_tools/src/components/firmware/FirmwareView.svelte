@@ -8,14 +8,15 @@
 		<p class="eyebrow">Firmware</p>
 		<h1 class="display text-4xl sm:text-5xl">Keep the tag up to date.</h1>
 		<p class="max-w-xl text-soft">
-			Get the <code class="font-mono text-sm text-fg">.bin</code> file from the
+			Pick a release, or a <code class="font-mono text-sm text-fg">.bin</code> file of your own.
+			Tags running this firmware update over Bluetooth; a tag still on its original firmware needs
+			one install over USB first. Release notes are on
 			<a
 				class="text-accent underline-offset-4 hover:underline"
-				href="https://github.com/dene-/stellar-L3N-etag/releases/latest"
+				href="https://github.com/dene-/stellar-L3N-etag/releases"
 				target="_blank"
-				rel="noreferrer">latest release</a
-			>. Tags running this firmware update over Bluetooth; a tag still on its original firmware
-			needs one install over USB first.
+				rel="noreferrer">GitHub</a
+			>.
 		</p>
 	</div>
 	<div class="grid gap-6 lg:grid-cols-2">

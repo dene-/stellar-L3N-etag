@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { bleConnectionStore } from '../../stores/connectionStore.svelte';
+	import FirmwareStatus from '../firmware/FirmwareStatus.svelte';
 	import DeviceSettings from './DeviceSettings.svelte';
 	import SceneCards from './SceneCards.svelte';
 
@@ -20,6 +21,7 @@
 				<p class="text-soft">
 					{store.deviceModelName} · {store.displayWidth}×{store.displayHeight}
 				</p>
+				<FirmwareStatus link />
 			</div>
 
 			<dl class="grid grid-cols-3 border-y border-line">

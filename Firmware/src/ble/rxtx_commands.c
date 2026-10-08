@@ -90,10 +90,16 @@ static void select_panel(const uint8_t *payload, uint16_t length)
 		screen_select_panel(payload[1]);
 }
 
-// E1 <scene>: switch the scene (SCREEN_SCENE_*).
+// E1 <scene>: switch the scene (SCREEN_SCENE_*). E1 AA: query; replies E1 AA <scene>.
 static void set_scene(const uint8_t *payload, uint16_t length)
 {
-	if (payload[1] < SCREEN_SCENE_COUNT)
+	if (payload[1] == 0xAA)
+	{
+		uint8_t reply[3] = {0xE1, 0xAA, screen_scene()};
+
+		notify(reply, sizeof(reply));
+	}
+	else if (payload[1] < SCREEN_SCENE_COUNT)
 		screen_set_scene(payload[1]);
 }
 
@@ -125,10 +131,16 @@ static void query_or_redraw(const uint8_t *payload, uint16_t length)
 	}
 }
 
-// E3 00|01: disable/enable the status LED. Persisted.
+// E3 00|01: disable/enable the status LED (persisted). E3 AA: query; replies E3 AA <enabled>.
 static void set_led_flashing(const uint8_t *payload, uint16_t length)
 {
-	if (payload[1] <= 0x01)
+	if (payload[1] == 0xAA)
+	{
+		uint8_t reply[3] = {0xE3, 0xAA, device_settings_led_flashing_enabled()};
+
+		notify(reply, sizeof(reply));
+	}
+	else if (payload[1] <= 0x01)
 		device_settings_set_led_flashing_enabled(payload[1]);
 }
 
@@ -213,6 +225,27 @@ static void clock_schedule(const uint8_t *payload, uint16_t length)
 	notify(reply, sizeof(reply));
 }
 
+// Release version, e.g. "0.10.0"; CI passes it to make (FIRMWARE_VERSION), local builds the git
+// description.
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "dev"
+#endif
+
+// E8: replies E8 <version, ASCII, at most 19 characters>.
+static void report_version(const uint8_t *payload, uint16_t length)
+{
+	static const char version[] = FIRMWARE_VERSION;
+	uint8_t reply[20] = {0xE8};
+	uint8_t count = 0;
+
+	while (version[count] && count < sizeof(reply) - 1)
+	{
+		reply[1 + count] = (uint8_t)version[count];
+		count++;
+	}
+	notify(reply, 1 + count);
+}
+
 static const rxtx_command_t commands[] = {
 	{0xB1, 2, show_pattern},
 	{0xDD, SET_TIME_ZONE_START, set_time},
@@ -226,6 +259,7 @@ static const rxtx_command_t commands[] = {
 	{0xE5, 2, image_upload},
 	{0xE6, 2, fast_refresh},
 	{0xE7, 2, clock_schedule},
+	{0xE8, 1, report_version},
 };
 
 _attribute_ram_code_ int rxtx_commands_write(void *p)

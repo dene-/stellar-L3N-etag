@@ -89,8 +89,8 @@ static void test_dashboard_redraw_rules(void)
     CHECK_EQ(fake_refresh_full, 1);
 }
 
-// Fast refresh mode: after the first full frame, clock frames (and redraws) are partial refreshes
-// for good; switching the panel (unknown content) is still full.
+// Fast refresh mode: after the first full frame, clock frames are partial refreshes for good; a
+// scene switch or redraw and switching the panel (unknown content) are still full.
 static void test_fast_refresh_keeps_clock_frames_partial(void)
 {
     int i;
@@ -115,12 +115,12 @@ static void test_fast_refresh_keeps_clock_frames_partial(void)
         finish_refresh();
     }
 
-    // A redraw of an unchanged frame is partial too.
+    // Switching the scene is a full refresh: partially drawn, the old scene would show through.
     calls = fake_refresh_calls;
-    screen_request_redraw();
+    screen_set_scene(SCREEN_SCENE_CLOCK);
     screen_update(0, "THX_TEST");
     CHECK_EQ(fake_refresh_calls, calls + 1);
-    CHECK_EQ(fake_refresh_full, 0);
+    CHECK_EQ(fake_refresh_full, 1);
     finish_refresh();
 
     screen_select_panel(PANEL_MODEL_BWR213);

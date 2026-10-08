@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := all
+
 TEL_CHIP := -DCHIP_TYPE=CHIP_TYPE_8258
 
 ifeq ($(OS), Windows_NT)

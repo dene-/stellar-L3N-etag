@@ -99,10 +99,14 @@ _attribute_ram_code_ void status_light_off(void)
     show(STATUS_LIGHT_OFF);
 }
 
+// Long enough to see in daylight (a 1 ms flash was hardly visible), short enough to cost little:
+// a few mA for 20 ms every heartbeat.
+#define BLINK_MS 20
+
 _attribute_ram_code_ void status_light_blink(status_light_color_t color)
 {
     show(color);
-    WaitMs(1);
+    WaitMs(BLINK_MS);
     show(STATUS_LIGHT_OFF);
 }
 

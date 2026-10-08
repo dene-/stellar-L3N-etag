@@ -196,6 +196,11 @@ void screen_request_redraw(void)
     redraw_requested = 1;
 }
 
+uint8_t screen_scene(void)
+{
+    return scene;
+}
+
 void screen_clock_schedule_changed(void)
 {
     replan = 1;

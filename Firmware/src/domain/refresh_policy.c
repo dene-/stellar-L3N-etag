@@ -18,8 +18,8 @@ static refresh_kind_t decide(const refresh_policy_t *policy, uint32_t black_hash
 {
     if (!redraw && policy->shown_valid && black_hash == policy->black_hash && red_hash == policy->red_hash)
         return REFRESH_SKIP;
-    if (!policy->shown_valid || red_hash != policy->red_hash ||
-        (!fast && (redraw || policy->partial_count >= REFRESH_POLICY_FULL_INTERVAL)))
+    if (redraw || !policy->shown_valid || red_hash != policy->red_hash ||
+        (!fast && policy->partial_count >= REFRESH_POLICY_FULL_INTERVAL))
         return REFRESH_FULL;
     return REFRESH_PARTIAL;
 }

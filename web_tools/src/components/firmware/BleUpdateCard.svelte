@@ -5,7 +5,8 @@
 		OTA_BANK_ADDRESS,
 		OTA_MAX_FIRMWARE_SIZE
 	} from '../../stores/connectionStore.svelte';
-	import FirmwareFilePicker from './FirmwareFilePicker.svelte';
+	import FirmwareSource from './FirmwareSource.svelte';
+	import FirmwareStatus from './FirmwareStatus.svelte';
 
 	const store = bleConnectionStore;
 	let file = $state<FirmwareFile | null>(null);
@@ -18,9 +19,17 @@
 		<p class="text-soft">
 			Takes about a minute. If the upload fails, the tag keeps running its current firmware.
 		</p>
+		{#if store.connected}
+			<FirmwareStatus />
+		{/if}
 	</div>
 
-	<FirmwareFilePicker bind:file maxBytes={OTA_MAX_FIRMWARE_SIZE} disabled={store.busy} />
+	<FirmwareSource
+		bind:file
+		maxBytes={OTA_MAX_FIRMWARE_SIZE}
+		disabled={store.busy}
+		installed={store.firmwareVersion}
+	/>
 
 	<div class="mt-auto flex flex-col gap-3">
 		<button
@@ -35,6 +44,8 @@
 				Connect to update
 			{:else if store.isFlashingFirmware}
 				Updating… {Math.ceil(store.firmwareUploadProgress)}%
+			{:else if file}
+				Install {file.name}
 			{:else}
 				Update firmware
 			{/if}

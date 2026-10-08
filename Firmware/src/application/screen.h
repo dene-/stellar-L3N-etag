@@ -12,10 +12,11 @@ enum
 };
 
 void screen_set_scene(uint8_t scene);
+uint8_t screen_scene(void);
 // A raw frame upload (EPD service) took over the panel: stop drawing scenes over it until the
 // scene is changed again.
 void screen_hold_frame(void);
-// Redraws the current scene on the next update (a partial refresh for clock scenes in fast refresh mode).
+// Redraws the current scene on the next update, always with a full refresh.
 void screen_request_redraw(void);
 // The clock interval or sync setting changed: plan the next clock frame again (no redraw now).
 void screen_clock_schedule_changed(void);

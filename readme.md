@@ -34,7 +34,8 @@ It has three pages:
   and time zone.
 - **Images**: converts pictures for the panel with a choice of dithering, and sends one picture or
   a slideshow. Pictures can be prepared before connecting.
-- **Firmware**: updates over Bluetooth, or installs over a USB serial adapter.
+- **Firmware**: shows the version on the tag and whether a newer release exists, and installs a
+  release (or a `.bin` file of your own) over Bluetooth, or over a USB serial adapter.
 
 The log of everything sent to and received from the tag opens from the icon at the top right.
 
@@ -65,8 +66,9 @@ A tag running the stock firmware has to be flashed over its serial pins once.
 
 ## Updating over Bluetooth
 
-Connect in the web tool, open "Firmware", select the new `.bin` file under "Update over Bluetooth"
-and click "Update firmware".
+Connect in the web tool and open "Firmware". Under "Update over Bluetooth" the latest release is
+already selected (older ones from v0.7.0 on, or a `.bin` file of your own, can be picked instead);
+click "Install". The Device page says when the tag runs an older version than the latest release.
 The tag reboots into the new firmware and drops the connection; reconnect after about 10 seconds.
 
 The flash holds two 128 KiB firmware banks. An update is written to the bank that is not running
@@ -112,8 +114,9 @@ The clock scenes show a new time every minute, or every 2 to 60 minutes as set i
 ("Clock refresh"), counted from midnight: every 15 minutes means :00, :15, :30 and :45. The panel
 is only refreshed when the picture changed. Changes in black use a partial refresh; changes in red
 (the date band, a low battery) use a full one, and every 10th refresh is full to clear ghosting.
-"Fast refresh" in the web tool skips those periodic full refreshes. Images are always shown with a
-full refresh, since a partial one cannot draw red.
+"Fast refresh" in the web tool skips those periodic full refreshes. Switching the screen and
+"Redraw" always use a full refresh, as a partial one would leave the old picture showing through.
+Images are always shown with a full refresh, since a partial one cannot draw red.
 
 A refresh takes from about a second (partial) to 15 or more seconds (full, with red), so by default
 the new time appears that long after the minute changed. With "Finish on the minute" the tag draws
@@ -163,15 +166,16 @@ unless noted.
 | `DE` | Restore the default settings |
 | `DF` | Save the settings now (they are also saved on disconnect) |
 | `E0 <model>` | Select the display model (table above) |
-| `E1 <scene>` | Switch the screen (table above) |
+| `E1 <scene>`, `E1 AA` | Switch the screen (table above); `AA` replies `E1 AA <scene>` |
 | `E2 AA` | Reply with the temperature, int16 in 0.1 °C |
 | `E2 AB` | Reply `E2 AB <model> <width:2> <height:2> <stored model>`; height is the visible rows |
 | `E2 <other>` | Redraw with a full refresh |
-| `E3 00\|01` | Status LED off/on |
+| `E3 00\|01\|AA` | Status LED off/on/query; `AA` replies `E3 AA <enabled>` |
 | `E4 00\|01` | Stop/start the LED rainbow |
 | `E5 …` | Image upload, see `image_upload` in `rxtx_commands.c` |
 | `E6 00\|01\|AA` | Fast refresh off/on/query; replies `E6 <enabled> <supported>` |
 | `E7 <minutes> <sync>`, `E7 AA` | Show a new clock time every 1 to 60 minutes; sync `01` ends refreshes on the minute. `AA` queries; replies `E7 <minutes> <sync>` |
+| `E8` | Reply `E8 <version>`, the firmware version in ASCII (`0.10.0`) |
 
 Firmware updates use characteristic `0x331F` of service `0x221F`; `Firmware/src/ble/ota_service.c`
 describes the protocol.
@@ -197,8 +201,12 @@ With Docker (any platform, including ARM Macs):
 
 On Windows: `cd Firmware && makeit.exe clean && makeit.exe -j12`.
 
-Both write `Firmware/ATC_Paper.bin`. Pushes to `main` that change `Firmware/` publish a release;
-changes to `web_tools/` redeploy the web tool.
+Both write `Firmware/ATC_Paper.bin`. Pushes to `main` that change `Firmware/` publish a release
+(the version comes from the commit messages, see `.github/workflows/firmware-release.yml`); the web
+tool is then redeployed with that release, as it bundles the firmware of every release from v0.7.0
+on (`tools/bundle_firmware_releases.py`; browsers can't download GitHub release files). The
+firmware reports `make FIRMWARE_VERSION=…`; `build_docker.sh` passes `git describe`, e.g.
+`0.9.0-3-g2843ceb`.
 
 ## Source layout
 

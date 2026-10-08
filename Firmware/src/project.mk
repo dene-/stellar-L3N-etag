@@ -56,3 +56,11 @@ $(OUT_PATH)/ble/rxtx_commands.o
 $(OUT_PATH)/%.o: ./src/%.c
 	@echo 'Building file: $<'
 	@$(TC32_COMPILER_PATH)tc32-elf-gcc $(GCC_FLAGS) $(INCLUDE_PATHS) -c -o"$@" "$<"
+
+# Version reported over BLE (E8): CI passes the release version, build_docker.sh the git description.
+FIRMWARE_VERSION ?= dev
+GCC_FLAGS += -DFIRMWARE_VERSION=\"$(FIRMWARE_VERSION)\"
+# Always rebuilt, so the reported version is never stale.
+$(OUT_PATH)/ble/rxtx_commands.o: FORCE
+.PHONY: FORCE
+FORCE:

@@ -5,7 +5,12 @@ on:
     branches: [main]
     paths:
       - 'web_tools/**'
+      - 'tools/bundle_firmware_releases.py'
       - '.github/workflows/deploy-pages.yml'
+  # A new firmware release has to be bundled into the site.
+  workflow_run:
+    workflows: ['Firmware Build and Release']
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +24,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -40,6 +46,11 @@ jobs:
           corepack enable
           yarn --version
           yarn --cwd web_tools install --frozen-lockfile
+
+      - name: Bundle firmware releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/bundle_firmware_releases.py --repo "${{ github.repository }}" --out web_tools/static/firmware
 
       - name: Build web_tools (SvelteKit + adapter-static)
         env:

@@ -21,8 +21,9 @@ _attribute_ram_code_ void wall_clock_init(void)
 
 _attribute_ram_code_ void wall_clock_tick(void)
 {
-    // One second per call: a main loop held up for several seconds catches up over the next passes.
-    if (clock_time() - last_second_tick >= ticks_per_second)
+    // Counts every second since the last call: the tag sleeps between advertising events about a
+    // second apart, slightly more than a second, and a second per call would fall behind.
+    while (clock_time() - last_second_tick >= ticks_per_second)
     {
         last_second_tick += ticks_per_second;
         uptime_seconds++;

@@ -47,7 +47,9 @@ jobs:
           initial_version: '0.0.0'
 
       - name: Build firmware
-        run: make -C Firmware all
+        run: |
+          NEW_TAG="${{ steps.tag.outputs.new_tag }}"
+          make -C Firmware all FIRMWARE_VERSION="${NEW_TAG#v}"
 
       - name: Prepare release asset name
         id: prep

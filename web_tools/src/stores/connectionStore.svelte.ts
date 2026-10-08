@@ -127,9 +127,13 @@ class BleConnectionStore {
 	temperatureC: number | null = $state(null);
 	batteryPercent: number | null = $state(null);
 	timeSyncedAt: Date | null = $state(null);
-	// The tag does not report these, so they are only known once set from this page.
+	// Reported by firmware v0.10.0 on (E1 AA, E3 AA); otherwise only known once set from this page.
 	activeScene: number | null = $state(null);
 	ledFlashingEnabled: boolean | null = $state(null);
+	// Firmware version the tag reports (E8), e.g. "0.10.0"; null before v0.10.0, which doesn't.
+	firmwareVersion: string | null = $state(null);
+	// Set once the queries after connecting are done, so a missing reply means old firmware.
+	firmwareVersionQueried = $state(false);
 
 	// A transfer holds the link; other commands wait until it is done.
 	get busy() {
@@ -325,6 +329,22 @@ class BleConnectionStore {
 				return;
 			}
 
+			if (data.byteLength === 3 && data[0] === 0xe1 && data[1] === 0xaa) {
+				this.activeScene = data[2];
+				return;
+			}
+
+			if (data.byteLength === 3 && data[0] === 0xe3 && data[1] === 0xaa) {
+				this.ledFlashingEnabled = data[2] === 0x01;
+				return;
+			}
+
+			if (data.byteLength >= 3 && data[0] === 0xe8) {
+				this.firmwareVersion = new TextDecoder().decode(data.subarray(1));
+				logStore.addLog(`[From display][RXTX]: Firmware ${this.firmwareVersion}`);
+				return;
+			}
+
 			const hex = bytesToHex(data);
 
 			// E2 AA reply: int16 LE, tenths of a degree.
@@ -348,6 +368,8 @@ class BleConnectionStore {
 		await settled;
 		await this.queryDisplayInfo();
 		await this.syncTime();
+		// One more round trip after E8: a version reply would have arrived by now.
+		this.firmwareVersionQueried = true;
 		await this.subscribeSensors();
 	}
 
@@ -410,7 +432,11 @@ class BleConnectionStore {
 		logStore.addLog('Querying display model...');
 		await this.sendRxTxCommand('e2ab');
 		await this.queryFastRefreshInfo();
+		// Firmware before v0.9.0 ignores E7, before v0.10.0 also E1 AA, E3 AA and E8.
 		await this.sendRxTxCommand('e7aa');
+		await this.sendRxTxCommand('e1aa');
+		await this.sendRxTxCommand('e3aa');
+		await this.sendRxTxCommand('e8');
 	}
 
 	async queryFastRefreshInfo() {
@@ -885,6 +911,8 @@ class BleConnectionStore {
 		this.timeSyncedAt = null;
 		this.activeScene = null;
 		this.ledFlashingEnabled = null;
+		this.firmwareVersion = null;
+		this.firmwareVersionQueried = false;
 	}
 }
 

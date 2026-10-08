@@ -93,12 +93,12 @@ static void test_refresh_if_changed_uses_policy(void)
     CHECK_EQ(display_refresh_if_changed(0, 1), 0);
     CHECK_EQ(fake_refresh_calls, 1);
 
-    // A redraw of the same frame: full normally, partial in fast mode.
+    // A redraw of the same frame: full, in fast mode too.
     CHECK_EQ(display_refresh_if_changed(1, 0), 1);
     CHECK_EQ(fake_refresh_full, 1);
     finish_refresh();
     CHECK_EQ(display_refresh_if_changed(1, 1), 1);
-    CHECK_EQ(fake_refresh_full, 0);
+    CHECK_EQ(fake_refresh_full, 1);
     finish_refresh();
 
     // Anything drawn outside the policy (an explicit refresh) makes the next frame full again.

@@ -3,10 +3,11 @@
 
 // Decides how to show a periodically redrawn frame (the clock scenes): skip it when it matches the
 // frame on the panel, and otherwise
-//   - full refresh when the panel content is unknown or red content changed (a partial refresh
-//     cannot draw red), always;
-//   - full refresh for a requested redraw and after REFRESH_POLICY_FULL_INTERVAL partial ones
-//     (against ghosting), unless fast mode is on;
+//   - full refresh when the panel content is unknown, red content changed (a partial refresh
+//     cannot draw red) or a redraw was requested (scene switch: a partial refresh of a whole new
+//     picture leaves the old one showing through), always;
+//   - full refresh after REFRESH_POLICY_FULL_INTERVAL partial ones (against ghosting), unless fast
+//     mode is on;
 //   - partial refresh otherwise.
 #define REFRESH_POLICY_FULL_INTERVAL 10
 
