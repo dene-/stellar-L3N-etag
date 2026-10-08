@@ -15,7 +15,7 @@ void telemetry_update(uint8_t ble_connected)
 {
     uint32_t interval = ble_connected ? TELEMETRY_CONNECTED_INTERVAL : TELEMETRY_IDLE_INTERVAL;
 
-    if (!period_elapsed(&sample_period, wall_clock_unix_time(), interval))
+    if (!period_elapsed(&sample_period, wall_clock_uptime_seconds(), interval))
         return;
 
     battery_mv = battery_sensor_read_mv();

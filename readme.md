@@ -77,8 +77,8 @@ Run `./build_docker.sh`, and wait for the output in `/Firmware` folder.
 
 ### Upload Images
 
-- 1. Run: `cd web_tools && python -m http.server`
-- 2. Open http://127.0.0.1:8000 and connect via Bluetooth on the page.
+- 1. Open the web tool (deployed to GitHub Pages from `main`), or run it locally: `cd web_tools && npm install && npm run dev`.
+- 2. Connect via Bluetooth on the page (Chrome/Edge; Web Bluetooth needs https or localhost).
 - 3. Select and upload an image; you can then add text, draw manually, or choose a dithering algorithm.
 - 4. Send to device and wait for the screen to refresh.
 
@@ -93,7 +93,9 @@ Switch scenes from the web page (Scene buttons) or with BLE command `E1 <scene>`
 | 2 | Dashboard (default): tag name, time, temperature, battery voltage, date band |
 | 3 | Slideshow of uploaded images |
 
-Until the time is set over BLE, the clock scenes show `--:--` and "Set time via Bluetooth". Clock scenes redraw once a minute, skip the refresh when nothing changed, and use a full refresh whenever red content changes (date band, low battery).
+Until the time is set over BLE, the clock scenes show `--:--` and "Set time via Bluetooth". Clock scenes redraw once a minute, skip the refresh when nothing changed, use a partial refresh for black-only changes and a full one whenever red content changes (date band, low battery), plus a full one every 10 partial refreshes against ghosting. "Fast refresh" in the web tool drops those periodic full refreshes and makes requested redraws partial; red changes and images are always shown with a full refresh, since a partial one cannot draw red.
+
+Uploaded images (one image or a slideshow) are stored in MCU flash: at most 23, and within 212 KiB, which allows 22 on the 2.9" panel and 21 on the 1.54". Firmware before this release let the store run into the flash sectors holding the MAC address and the radio's crystal calibration. On the first boot of the new firmware, a store that overlapped them is deleted and the two sectors are reset to defaults; the tag then gets a new generated MAC (so a new `THX_…` name) once, and its images have to be uploaded again.
 
 Scene code lives in `Firmware/src/domain/epd_scenes.c` (layouts) and `epd_canvas.c` (drawing). Text uses the Spleen bitmap font, converted pixel for pixel by `tools/fonts/gen_gfx_fonts.py`. Preview layouts on your computer without flashing: `python3 tools/scene_preview/preview.py` (needs `cc` and Pillow). It writes one PNG per panel size, scene and state plus a `sheet.png` overview to your temp dir, and exits non-zero if any text or shape is clipped or overflows its box.
 
@@ -109,14 +111,7 @@ Scene code lives in `Firmware/src/domain/epd_scenes.c` (layouts) and `epd_canvas
 | 5 | BWR290 / BWR296 (Stellar L3N@, 290R-N) | 296x128 | black/white/red | SSD16xx |
 | 6 | BW290 / BW296 | 296x128 | black/white | SSD16xx |
 
-Auto-detection only tells the two controller families apart. After a reset, the BUSY pin idles low on SSD16xx controllers and high on UC8151 ones, so it picks model 5 or model 2; no commands are sent to the panel. Black/white panels, the 2.13" ICE and the 1.54" need their model chosen in the web tool's display model selector (BLE `E0 <model>`); the choice is saved to flash. Black/white models draw the clock scenes without red, and uploaded images keep only their black plane.
-
-### Integrate with Apple Find My (AirTag Emulation)
-
-- The device supports integration with Apple’s Find My network (it broadcasts a public key over Bluetooth per AirTag protocol; nearby Apple devices encrypt their location with that key and upload it; you can fetch and decrypt with your private key).
-- This feature is disabled by default.
-- To enable: in ble.c change the data after PUB_KEY= to your own public key. See (https://github.com/dchristl/macless-haystack or https://github.com/malmeloo/openhaystack) for how to obtain a key.
-- Also set AIR_TAG_OPEN=1 in ble.c.
+Auto-detection only tells the two controller families apart. After a reset, the BUSY pin idles low on SSD16xx controllers and high on UC8151 ones, so it picks model 5 or model 2; no commands are sent to the panel. Black/white panels, the 2.13" ICE and the 1.54" need their model chosen in the web tool's display model selector (BLE `E0 <model>`); the choice is saved to flash. Black/white models draw the clock scenes without red, and uploaded images keep only their black plane. Images uploaded for one model are not shown after switching to a panel of another size; upload them again.
 
 ### Resolved / Pending Issues
 
@@ -124,7 +119,7 @@ Auto-detection only tells the two controller families apart. After a reset, the 
 - [X] Flash not taking effect
 - [X] Screen area incorrect / abnormal
 - [X] Bluetooth cannot connect / Bluetooth OTA
-- [ ] Automatic model detection
+- [X] Automatic model detection (controller family; black/white variants are selected manually)
 - [X] Python image generation script
 - [X] Bluetooth image transfer size mismatch
 - [X] Notify after Bluetooth image upload
@@ -136,7 +131,6 @@ Auto-detection only tells the two controller families apart. After a reset, the 
 - [X] Web supports drawing editor, direct upload, black & white dithering
 - [X] Three-color dithering algorithm; device-side three-color display and Bluetooth transfer support
 - [X] EPD buffer refresh occasional left/right black stripe issue
-- [X] Support integration with Apple Find My (AirTag emulation)
 
 ### Original readme.md
 

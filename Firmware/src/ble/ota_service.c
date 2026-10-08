@@ -41,8 +41,12 @@ _attribute_ram_code_ int ota_service_write(void *p)
 {
 	rf_packet_att_write_t *req = (rf_packet_att_write_t *)p;
 	uint8_t *payload = &req->value;
-	uint8_t data_len = req->l2capLen - 3;
+	uint8_t data_len;
 	uint32_t address = 0;
+
+	if (req->l2capLen < 4) // ATT opcode + handle, then at least the command byte
+		return 0;
+	data_len = req->l2capLen - 3;
 
 	if (!ota_started)
 	{ // a short connection interval for the transfer
@@ -76,7 +80,9 @@ _attribute_ram_code_ int ota_service_write(void *p)
 		break;
 	case 2: // writing one bank (256byte) to flash at given sector
 		crc_out = 0;
-		if (address >= OTA_BANK_START && address < (OTA_BANK_START + OTA_MAX_SIZE - 0x100))
+		// within the bank and inside one flash page (a page program wraps at the page end)
+		if (address >= OTA_BANK_START && address < (OTA_BANK_START + OTA_MAX_SIZE - 0x100) &&
+			(address & 0xFF) + ram_position <= 0x100)
 		{
 			flash_write_page(address, ram_position, ramd_to_flash_temp_buffer);
 		}
@@ -86,7 +92,7 @@ _attribute_ram_code_ int ota_service_write(void *p)
 		break;
 	case 3: // write into the temporary buffer that will later be written to flash
 		crc_out = 0;
-		if (data_len < 1 || ram_position + (data_len - 1) > 0x100)
+		if (ram_position + (data_len - 1) > 0x100)
 			return 0;
 		memcpy(&ramd_to_flash_temp_buffer[ram_position], &payload[1], (data_len - 1));
 		ram_position += (data_len - 1);
@@ -97,8 +103,10 @@ _attribute_ram_code_ int ota_service_write(void *p)
 		flash_read_page(address, sizeof(out_buffer), out_buffer);
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, sizeof(out_buffer));
 		break;
-	case 5: // read real flash to verify
+	case 5: // read back the staging buffer to verify
 		crc_out = 0;
+		if (address > sizeof(ramd_to_flash_temp_buffer) - sizeof(out_buffer))
+			return 0;
 		memcpy(out_buffer, &ramd_to_flash_temp_buffer[address], sizeof(out_buffer));
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, sizeof(out_buffer));
 		break;

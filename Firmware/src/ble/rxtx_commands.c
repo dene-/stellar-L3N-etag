@@ -44,10 +44,11 @@ static void set_time(const uint8_t *payload, uint16_t length)
 	wall_clock_set(unix_time, (payload[5] << 8) | payload[6], payload[7], payload[8], payload[9]);
 }
 
-// DE: restore and store the default settings.
+// DE: restore and store the default settings, and apply them.
 static void reset_settings(const uint8_t *payload, uint16_t length)
 {
 	device_settings_reset();
+	screen_select_panel(device_settings_panel_model());
 }
 
 // DF: store the current settings now (they are also stored on disconnect).
@@ -180,11 +181,12 @@ _attribute_ram_code_ int rxtx_commands_write(void *p)
 {
 	rf_packet_att_write_t *req = (rf_packet_att_write_t *)p;
 	const uint8_t *payload = &req->value;
-	uint16_t length = req->l2capLen - 3;
+	uint16_t length;
 	unsigned int i;
 
-	if (length < 1)
+	if (req->l2capLen < 4) // ATT opcode + handle, then at least the command byte
 		return 0;
+	length = req->l2capLen - 3;
 	for (i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
 	{
 		if (commands[i].opcode == payload[0])

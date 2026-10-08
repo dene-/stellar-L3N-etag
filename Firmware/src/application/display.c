@@ -8,6 +8,7 @@
 
 static RAM uint8_t model = PANEL_MODEL_AUTO;
 static RAM uint8_t refreshing;
+static RAM uint32_t refresh_started;
 static RAM refresh_policy_t refresh_policy;
 
 static RAM uint8_t temperature_valid;
@@ -23,7 +24,7 @@ static void remember_temperature(int8_t value)
 {
     temperature = value;
     temperature_valid = 1;
-    temperature_time = wall_clock_unix_time();
+    temperature_time = wall_clock_uptime_seconds();
 }
 
 static uint8_t resolved_model(void)
@@ -33,17 +34,25 @@ static uint8_t resolved_model(void)
     return model;
 }
 
+_attribute_ram_code_ static void end_refresh(void)
+{
+    epd_panel_sleep(model);
+    refreshing = 0;
+}
+
 _attribute_ram_code_ static void show(uint8_t *black, uint8_t *red, uint16_t size, uint8_t full)
 {
     const panel_t *panel = display_panel();
+    uint16_t panel_size = panel_plane_bytes(panel);
 
-    if (device_settings_fast_refresh_enabled())
-        full = 0;
+    if (size > panel_size)
+        size = panel_size;
     // Black/white panels sharing a BWR driver must get a blank red RAM, whatever was drawn.
     if (!panel->has_red)
         red = 0;
     remember_temperature(epd_panel_refresh(panel->model, black, red, size, full));
     refreshing = 1;
+    refresh_started = wall_clock_uptime_seconds();
 }
 
 void display_init(uint8_t stored_model)
@@ -53,8 +62,11 @@ void display_init(uint8_t stored_model)
 
 void display_select_model(uint8_t new_model)
 {
+    if (refreshing)
+        end_refresh(); // the sleep command must reach the controller that is refreshing
     display_init(new_model);
     device_settings_set_panel_model(model);
+    refresh_policy_forget(&refresh_policy);
     temperature_valid = 0;
 }
 
@@ -97,10 +109,10 @@ _attribute_ram_code_ void display_show_pattern(uint8_t pattern)
     show(black_plane, 0, size, 1);
 }
 
-uint8_t display_refresh_if_changed(uint8_t force_full)
+uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast)
 {
     uint16_t size = panel_plane_bytes(display_panel());
-    refresh_kind_t kind = refresh_policy_decide(&refresh_policy, black_plane, red_plane, size, force_full);
+    refresh_kind_t kind = refresh_policy_decide(&refresh_policy, black_plane, red_plane, size, redraw, fast);
 
     if (kind == REFRESH_SKIP)
         return 0;
@@ -115,17 +127,19 @@ uint8_t display_is_refreshing(void)
 
 _attribute_ram_code_ uint8_t display_poll(void)
 {
-    if (refreshing && epd_panel_is_idle(model))
-    {
-        epd_panel_sleep(model);
-        refreshing = 0;
-    }
+    // A panel that never reports idle (wrong model selected, loose cable) must not keep the tag
+    // awake and block every later update.
+    if (refreshing && (epd_panel_is_idle(model) ||
+                       wall_clock_uptime_seconds() - refresh_started >= DISPLAY_REFRESH_TIMEOUT))
+        end_refresh();
     return refreshing;
 }
 
 _attribute_ram_code_ int8_t display_read_temperature(void)
 {
-    if (temperature_valid && wall_clock_unix_time() - temperature_time < DISPLAY_TEMPERATURE_MAX_AGE)
+    // Reading resets the controller, which would cut a running refresh short.
+    if (refreshing ||
+        (temperature_valid && wall_clock_uptime_seconds() - temperature_time < DISPLAY_TEMPERATURE_MAX_AGE))
         return temperature;
 
     remember_temperature(epd_panel_read_temperature(resolved_model()));

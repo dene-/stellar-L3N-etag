@@ -4,7 +4,7 @@
 typedef struct
 {
     uint8_t panel_model;          // PANEL_MODEL_*, PANEL_MODEL_AUTO = detect
-    uint8_t fast_refresh_enabled; // every panel update is a partial refresh
+    uint8_t fast_refresh_enabled; // clock scenes skip the optional full refreshes, see domain/refresh_policy.h
     uint8_t led_flashing_enabled; // status LED heartbeat and animation allowed
 } device_settings_t;
 

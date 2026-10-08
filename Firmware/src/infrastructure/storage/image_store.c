@@ -2,6 +2,7 @@
 
 #include "tl_common.h"
 #include "drivers.h"
+#include "stack/ble/blt_config.h"
 #include "infrastructure/storage/image_store.h"
 #include "domain/panel.h"
 #include "sections.h"
@@ -10,8 +11,11 @@
 #define IMAGE_STORE_VERSION 1
 #define IMAGE_STORE_BASE_ADDR 0x40000
 #define IMAGE_STORE_DATA_ADDR 0x41000
-#define IMAGE_STORE_END_ADDR 0x78000
+// Ends below the SDK's MAC address and calibration sectors (0x76000, 0x77000); settings are at 0x78100.
+#define IMAGE_STORE_END_ADDR CFG_ADR_MAC
 #define IMAGE_STORE_TOTAL_DATA_BYTES (IMAGE_STORE_END_ADDR - IMAGE_STORE_DATA_ADDR)
+
+typedef char image_store_end_check[(CFG_ADR_MAC == 0x76000 && CUST_CAP_INFO_ADDR == 0x77000) ? 1 : -1];
 
 typedef struct
 {
@@ -94,9 +98,18 @@ static void image_store_erase_all_blocks(void)
 {
   uint32_t address;
 
-  for (address = IMAGE_STORE_BASE_ADDR; address < IMAGE_STORE_END_ADDR; address += 0x8000)
+  for (address = IMAGE_STORE_BASE_ADDR; address < IMAGE_STORE_END_ADDR;)
   {
-    flash_erase_32kblock(address);
+    if (address % 0x8000 == 0 && address + 0x8000 <= IMAGE_STORE_END_ADDR)
+    {
+      flash_erase_32kblock(address);
+      address += 0x8000;
+    }
+    else
+    {
+      flash_erase_sector(address);
+      address += 0x1000;
+    }
   }
 }
 
@@ -115,6 +128,26 @@ static void image_store_write_bytes(uint32_t address, const uint8_t *data, uint1
     cursor += chunk;
     remaining -= chunk;
   }
+}
+
+// Firmware before this layout erased the store up to 0x78000, through the SDK's MAC address
+// (CFG_ADR_MAC, 0x76000) and crystal calibration (CUST_CAP_INFO_ADDR, 0x77000) sectors, and a
+// large upload wrote image bytes there. Such stores are dropped, and the two sectors erased so the
+// SDK falls back to a generated MAC and the default calibration instead of image data.
+// Runs before the SDK reads those sectors.
+void image_store_repair_legacy_overlap(void)
+{
+  image_store_header_t header;
+
+  flash_read_page(IMAGE_STORE_BASE_ADDR, sizeof(header), (uint8_t *)&header);
+  if (header.magic != IMAGE_STORE_MAGIC || header.checksum != image_store_checksum(&header) ||
+      header.total_data_bytes <= IMAGE_STORE_TOTAL_DATA_BYTES)
+    return;
+
+  // The header goes last, so a reset part-way repeats the repair on the next boot.
+  flash_erase_sector(CFG_ADR_MAC);
+  flash_erase_sector(CUST_CAP_INFO_ADDR);
+  flash_erase_sector(IMAGE_STORE_BASE_ADDR);
 }
 
 void image_store_init(void)

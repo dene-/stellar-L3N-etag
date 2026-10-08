@@ -69,9 +69,9 @@ _attribute_ram_code_ void epd_uc8151c_panel_setting(const epd_uc8151c_config_t *
 
 _attribute_ram_code_ void epd_uc8151c_load_partial_luts(const epd_uc8151c_config_t *cfg)
 {
-  EPD_send_lut((uint8_t *)cfg->lut_20, cfg->lut_20_size);
+  EPD_send_lut(cfg->lut_20, cfg->lut_20_size);
   EPD_send_empty_lut(0x21, 260);
-  EPD_send_lut((uint8_t *)cfg->lut_22, cfg->lut_22_size);
-  EPD_send_lut((uint8_t *)cfg->lut_23, cfg->lut_23_size);
+  EPD_send_lut(cfg->lut_22, cfg->lut_22_size);
+  EPD_send_lut(cfg->lut_23, cfg->lut_23_size);
   EPD_send_empty_lut(0x24, 260);
 }

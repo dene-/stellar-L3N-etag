@@ -8,19 +8,23 @@
 
 static RAM uint32_t ticks_per_second = CLOCK_16M_SYS_TIMER_CLK_1S;
 static RAM uint32_t last_second_tick;
+static RAM uint32_t uptime_seconds;
 static RAM calendar_t calendar;
 
 _attribute_ram_code_ void wall_clock_init(void)
 {
     ticks_per_second += CLOCK_TRIM;
+    last_second_tick = clock_time();
     calendar.unix_time = 0;
 }
 
 _attribute_ram_code_ void wall_clock_tick(void)
 {
+    // One second per call: a main loop held up for several seconds catches up over the next passes.
     if (clock_time() - last_second_tick >= ticks_per_second)
     {
         last_second_tick += ticks_per_second;
+        uptime_seconds++;
         calendar_advance_second(&calendar);
     }
 }
@@ -38,4 +42,9 @@ _attribute_ram_code_ uint32_t wall_clock_unix_time(void)
 _attribute_ram_code_ struct date_time wall_clock_date(void)
 {
     return calendar.date;
+}
+
+_attribute_ram_code_ uint32_t wall_clock_uptime_seconds(void)
+{
+    return uptime_seconds;
 }

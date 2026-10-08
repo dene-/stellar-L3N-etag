@@ -21,6 +21,6 @@ void status_led_update(uint8_t ble_connected)
     }
 
     status_light_animate();
-    if (period_elapsed(&heartbeat_period, wall_clock_unix_time(), STATUS_LED_HEARTBEAT_SECONDS))
+    if (period_elapsed(&heartbeat_period, wall_clock_uptime_seconds(), STATUS_LED_HEARTBEAT_SECONDS))
         status_light_blink(ble_connected ? STATUS_LIGHT_BLUE : STATUS_LIGHT_GREEN);
 }

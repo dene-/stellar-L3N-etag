@@ -1,6 +1,6 @@
 // Declare globals that may be provided elsewhere
 import { logStore } from './logStore.svelte';
-import { intToHex, canvas2bytes, bytesToHex, hexToBytes } from '$lib/utils';
+import { intToHex, bytesToHex, hexToBytes } from '$lib/utils';
 import { FLASH_IMAGE_STORAGE_BYTES } from '$lib/photo-utils';
 
 type DisplaySource = 'default' | 'firmware' | 'manual' | 'name';
@@ -125,57 +125,52 @@ class BleConnectionStore {
 		this.displaySource = source;
 	}
 
-	disconnect() {
+	// The device's gattserverdisconnected event; one stable function so it is registered once.
+	private readonly onGattDisconnected = () => {
 		this.resetVariables();
-
 		logStore.addLog('Disconnected.');
+	};
 
-		//document.getElementById('connectbutton').innerHTML = 'Connect';
+	disconnect() {
+		if (this.bleDevice?.gatt?.connected) {
+			this.bleDevice.gatt.disconnect(); // fires gattserverdisconnected, which resets the state
+		} else {
+			this.onGattDisconnected();
+		}
 	}
 
 	async preConnect() {
-		if (this.gattServer != null && this.gattServer.connected) {
-			if (this.bleDevice && this.bleDevice?.gatt?.connected) {
-				this.bleDevice.gatt.disconnect();
-			}
-		} else {
-			this.bleDevice = await navigator.bluetooth.requestDevice({
+		if (this.bleDevice?.gatt?.connected) {
+			this.disconnect();
+			return;
+		}
+
+		try {
+			const device = await navigator.bluetooth.requestDevice({
 				optionalServices: this.bleDeviceOptionalServicesIds,
 				acceptAllDevices: true
 			});
+			this.bleDevice?.removeEventListener('gattserverdisconnected', this.onGattDisconnected);
+			device.addEventListener('gattserverdisconnected', this.onGattDisconnected);
+			this.bleDevice = device;
 
-			this.connectedDeviceName = this.bleDevice.name ?? 'Unknown device';
+			this.connectedDeviceName = device.name ?? 'Unknown device';
 
-			const inferredDisplay = inferDisplayModelFromName(this.bleDevice.name);
+			const inferredDisplay = inferDisplayModelFromName(device.name);
 			if (inferredDisplay) {
 				this.applyDisplayModelInfo(inferredDisplay, 'name');
 			}
 
-			// Ensure correct "this" binding on disconnect
-			this.bleDevice.addEventListener('gattserverdisconnected', this.disconnect.bind(this));
-
 			this.preconnected = true;
-
-			try {
-				await this.connect();
-			} catch (e) {
-				await handleError(e);
-			}
-		}
-	}
-
-	async reConnect() {
-		if (this.bleDevice != null && this.bleDevice?.gatt?.connected) {
-			this.bleDevice.gatt.disconnect();
-		}
-
-		this.resetVariables();
-
-		logStore.addLog('Reconnecting...');
-
-		setTimeout(async () => {
 			await this.connect();
-		}, 300);
+		} catch (e) {
+			// A half-finished connection (e.g. a device without these services) must not stay open.
+			if (this.bleDevice?.gatt?.connected) {
+				this.bleDevice.gatt.disconnect();
+			}
+			this.resetVariables();
+			await handleError(e);
+		}
 	}
 
 	async connect() {
@@ -338,67 +333,24 @@ class BleConnectionStore {
 		await this.queryDisplayInfo();
 	}
 
+	// Errors are logged, not thrown: the UI buttons call this without handling failures.
 	async sendRxTxCommand(command: string) {
-		if (this.rxtxCharacteristic) {
-			logStore.addLog(`Sending RXTX command: ${command}`);
-			await this.rxtxCharacteristic.writeValueWithResponse(hexToBytes(command) as BufferSource);
-		} else {
-			logStore.addLog('Service unavailable. Is Bluetooth connected?');
-		}
-	}
-
-	async sendEpdCommand(command: string) {
-		if (this.epdCharacteristic) {
-			logStore.addLog(`Sending EPD command: ${command}`);
-			await this.epdCharacteristic.writeValueWithResponse(hexToBytes(command) as BufferSource);
-		} else {
-			logStore.addLog('Service unavailable. Is Bluetooth connected?');
-		}
-	}
-
-	// Send a Uint8Array buffer in chunks to the EPD characteristic in either BW or BWR mode
-	async sendBufferData(data: Uint8Array, type: 'bw' | 'bwr') {
-		if (!this.epdCharacteristic) {
+		if (!this.rxtxCharacteristic) {
 			logStore.addLog('Service unavailable. Is Bluetooth connected?');
 			return;
 		}
-
-		const code = type === 'bwr' ? 0x00 : 0xff;
-		const chunkSize = 240; // bytes per chunk
-		let partIndex = 0;
-		for (let offset = 0; offset < data.length; offset += chunkSize) {
-			logStore.addLog(
-				`Sending block ${partIndex + 1}. Size: ${Math.min(chunkSize, data.length - offset) + 4} bytes. Offset: ${offset}`
-			);
-			const chunk = data.subarray(offset, offset + chunkSize);
-			const pkt = new Uint8Array(4 + chunk.length);
-			pkt[0] = 0x03;
-			pkt[1] = code;
-			pkt[2] = (offset >> 8) & 0xff;
-			pkt[3] = offset & 0xff;
-			pkt.set(chunk, 4);
-			await this.epdCharacteristic.writeValueWithResponse(pkt);
-			partIndex += 1;
+		logStore.addLog(`Sending RXTX command: ${command}`);
+		try {
+			await this.rxtxCharacteristic.writeValueWithResponse(hexToBytes(command) as BufferSource);
+		} catch (e) {
+			await handleError(e);
 		}
 	}
 
-	// Prepare display and upload both BW and BWR buffers from a canvas, then trigger full refresh
-	async uploadImageFromCanvas(canvas: HTMLCanvasElement) {
-		const start = Date.now();
-		await this.sendEpdCommand('0000');
-		await this.sendEpdCommand('020000');
-
-		const bw = canvas2bytes(canvas, 'bw');
-		const bwr = canvas2bytes(canvas, 'bwr');
-		await this.sendBufferData(bw, 'bw');
-		await this.sendBufferData(bwr, 'bwr');
-
-		await this.sendEpdCommand('0101');
-		logStore.addLog(`Refresh done, took ${((Date.now() - start) / 1000).toFixed(2)}s`);
-	}
-
 	async uploadImageSet(images: StoredImageBuffers[], intervalSeconds: number): Promise<void> {
-		if (!this.rxtxCharacteristic) {
+		// Held for the whole upload: a dropped link makes its writes fail instead of hitting null.
+		const rxtx = this.rxtxCharacteristic;
+		if (!rxtx) {
 			logStore.addLog('Service unavailable. Is Bluetooth connected?');
 			return;
 		}
@@ -412,7 +364,9 @@ class BleConnectionStore {
 		const totalBytes = planeSize * 2 * images.length;
 		const uploadModel = this.deviceModel || DEFAULT_DISPLAY_INFO.model;
 		const chunkSize = 240;
-		const slideshowInterval = images.length > 1 ? intervalSeconds : 0;
+		// Sent as uint16 seconds; the device treats 0 as 60 s.
+		const slideshowInterval =
+			images.length > 1 ? Math.min(0xffff, Math.max(1, Math.round(intervalSeconds) || 60)) : 0;
 
 		if (totalBytes > FLASH_IMAGE_STORAGE_BYTES) {
 			throw new Error('Selected images exceed the MCU flash space reserved for photos.');
@@ -430,29 +384,27 @@ class BleConnectionStore {
 		this.suppressE5Notifications = true;
 		let uploadAborted = false;
 
-		// Listen for E5 notifications during upload
-		const notificationListener = (event: Event) => {
-			const char = event.target as BluetoothRemoteGATTCharacteristic;
-			const v = char.value;
+		// The device only answers a chunk write (E5 01) when it rejects it: E5 01 00.
+		const chunkFailureListener = (event: Event) => {
+			const v = (event.target as BluetoothRemoteGATTCharacteristic).value;
 			if (!v || v.byteLength < 3) return;
 			const d = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
-			if (d[0] !== 0xe5) return;
-
-			// E5 xx 00 = failure
-			if (d[2] === 0x00) {
-				const subcmd = d[1];
-				logStore.addLog(`Device rejected E5 sub-command 0x${subcmd.toString(16).padStart(2, '0')}`);
+			if (d[0] === 0xe5 && d[1] === 0x01 && d[2] === 0x00) {
+				logStore.addLog('Device rejected an image chunk.');
 				uploadAborted = true;
 			}
 		};
-		this.rxtxCharacteristic.addEventListener('characteristicvaluechanged', notificationListener);
+		rxtx.addEventListener('characteristicvaluechanged', chunkFailureListener);
+		const isReplyTo = (subcommand: number) => (d: Uint8Array) =>
+			d.length === 3 && d[0] === 0xe5 && d[1] === subcommand;
 
 		try {
 			const start = Date.now();
 			logStore.addLog(`Preparing persistent upload for ${images.length} image(s)...`);
 
-			// Send E5 00 prepare command
-			await this.rxtxCharacteristic.writeValueWithResponse(
+			// E5 00: the device erases its image flash (a few seconds) and replies E5 00 <ok>.
+			const prepared = await this.writeAndAwaitReply(
+				rxtx,
 				new Uint8Array([
 					0xe5,
 					0x00,
@@ -460,15 +412,16 @@ class BleConnectionStore {
 					images.length,
 					slideshowInterval & 0xff,
 					(slideshowInterval >> 8) & 0xff
-				])
+				]),
+				isReplyTo(0x00),
+				15000
 			);
-
-			// Wait for flash erase and BLE connection speed change,
-			// also allows the prepare response notification to arrive
-			await new Promise((r) => setTimeout(r, 500));
-
-			if (uploadAborted) {
-				logStore.addLog('Device rejected the prepare command. Upload aborted.');
+			if (!prepared || prepared[2] !== 0x01) {
+				logStore.addLog(
+					prepared
+						? 'Device rejected the prepare command (model or image count). Upload aborted.'
+						: 'Device did not answer the prepare command. Upload aborted.'
+				);
 				return;
 			}
 
@@ -495,7 +448,7 @@ class BleConnectionStore {
 						packet[5] = (offset >> 8) & 0xff;
 						packet.set(chunk, 6);
 
-						await this.rxtxCharacteristic.writeValueWithResponse(packet);
+						await rxtx.writeValueWithResponse(packet);
 						chunksDone++;
 						this.imageUploadProgress = (chunksDone / totalChunks) * 100;
 					}
@@ -510,7 +463,17 @@ class BleConnectionStore {
 				return;
 			}
 
-			await this.rxtxCharacteristic.writeValueWithResponse(new Uint8Array([0xe5, 0x02]));
+			// E5 02: the device commits the upload, replies E5 02 <ok> and starts showing it.
+			const committed = await this.writeAndAwaitReply(
+				rxtx,
+				new Uint8Array([0xe5, 0x02]),
+				isReplyTo(0x02),
+				5000
+			);
+			if (!committed || committed[2] !== 0x01) {
+				logStore.addLog('Device did not confirm the upload. Upload it again.');
+				return;
+			}
 			const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 
 			this.imageUploadProgress = 100;
@@ -520,17 +483,14 @@ class BleConnectionStore {
 					: `Photo uploaded in ${elapsed}s (persistent single-photo mode).`
 			);
 		} finally {
-			this.rxtxCharacteristic.removeEventListener(
-				'characteristicvaluechanged',
-				notificationListener
-			);
+			rxtx.removeEventListener('characteristicvaluechanged', chunkFailureListener);
 			this.isFlashingFirmware = false;
 			this.isUploadingImages = false;
 			this.suppressE5Notifications = false;
 		}
 	}
 
-	private async eraseFwArea() {
+	private async eraseFwArea(ota: BluetoothRemoteGATTCharacteristic) {
 		const totalSectors = OTA_BANK_SIZE / 0x1000;
 		for (let sector = 0; sector < totalSectors; sector++) {
 			const address = OTA_BANK_ADDRESS + sector * 0x1000;
@@ -540,7 +500,7 @@ class BleConnectionStore {
 			pkt[2] = (address >> 16) & 0xff;
 			pkt[3] = (address >> 8) & 0xff;
 			pkt[4] = address & 0xff;
-			await this.writeCharacteristic?.writeValueWithResponse(pkt);
+			await ota.writeValueWithResponse(pkt);
 			logStore.addLog(`Erasing sector ${sector + 1}/${totalSectors}`);
 		}
 	}
@@ -555,14 +515,18 @@ class BleConnectionStore {
 		return crc & 0xffff;
 	}
 
-	private async sendPart(address: number, data: Uint8Array) {
+	private async sendPart(
+		ota: BluetoothRemoteGATTCharacteristic,
+		address: number,
+		data: Uint8Array
+	) {
 		const chunkSize = 240;
 		for (let offset = 0; offset < data.length; offset += chunkSize) {
 			const chunk = data.subarray(offset, offset + chunkSize);
 			const pkt = new Uint8Array(1 + chunk.length);
 			pkt[0] = 0x03;
 			pkt.set(chunk, 1);
-			await this.writeCharacteristic?.writeValueWithResponse(pkt);
+			await ota.writeValueWithResponse(pkt);
 		}
 
 		// Commit this page to flash
@@ -572,23 +536,22 @@ class BleConnectionStore {
 		commitPkt[2] = (address >> 16) & 0xff;
 		commitPkt[3] = (address >> 8) & 0xff;
 		commitPkt[4] = address & 0xff;
-		await this.writeCharacteristic?.writeValueWithResponse(commitPkt);
+		await ota.writeValueWithResponse(commitPkt);
 
 		const { promise: settled, resolve } = Promise.withResolvers<void>();
 		setTimeout(resolve, 50);
 		await settled;
 	}
 
-	// Writes `packet` to the OTA characteristic and waits for the first notification accepted
-	// by `accept`. Resolves to null if none arrives in time (e.g. firmware too old to reply).
-	private async otaRequest(
+	// Writes `packet` and waits for the first notification on the same characteristic accepted by
+	// `accept`. Resolves to null if none arrives within timeoutMs (e.g. firmware too old to reply),
+	// even when the write itself never completes.
+	private async writeAndAwaitReply(
+		characteristic: BluetoothRemoteGATTCharacteristic,
 		packet: Uint8Array<ArrayBuffer>,
 		accept: (reply: Uint8Array) => boolean,
 		timeoutMs: number
 	): Promise<Uint8Array | null> {
-		const characteristic = this.writeCharacteristic;
-		if (!characteristic) throw new Error('OTA characteristic unavailable.');
-
 		const { promise: reply, resolve } = Promise.withResolvers<Uint8Array | null>();
 		const onValue = (event: Event) => {
 			const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
@@ -600,8 +563,9 @@ class BleConnectionStore {
 		characteristic.addEventListener('characteristicvaluechanged', onValue);
 
 		try {
-			await characteristic.writeValueWithResponse(packet);
-			return await reply;
+			const written = characteristic.writeValueWithResponse(packet);
+			written.catch(() => undefined); // a late failure after the reply or timeout is not an error here
+			return await Promise.race([written.then(() => reply), reply]);
 		} finally {
 			clearTimeout(timer);
 			characteristic.removeEventListener('characteristicvaluechanged', onValue);
@@ -628,7 +592,9 @@ class BleConnectionStore {
 	}
 
 	async flashFirmware(address: number, data: Uint8Array): Promise<void> {
-		if (!this.writeCharacteristic) {
+		// Held for the whole update: a dropped link makes its writes fail instead of being skipped.
+		const ota = this.writeCharacteristic;
+		if (!ota) {
 			logStore.addLog('OTA service unavailable. Is Bluetooth connected?');
 			return;
 		}
@@ -649,16 +615,16 @@ class BleConnectionStore {
 
 		try {
 			// Replies (CRC result, rejection) come back as notifications on this characteristic.
-			await this.writeCharacteristic.startNotifications();
+			await ota.startNotifications();
 
-			await this.eraseFwArea();
+			await this.eraseFwArea(ota);
 
 			logStore.addLog('Flashing firmware... wait a little.');
 
 			let offset = 0;
 			while (offset < data.length) {
 				const pageData = data.subarray(offset, offset + pageSize);
-				await this.sendPart(address + offset, pageData);
+				await this.sendPart(ota, address + offset, pageData);
 				offset += pageData.length;
 				this.firmwareUploadProgress = (offset / data.length) * 100;
 			}
@@ -671,14 +637,18 @@ class BleConnectionStore {
 			// reply buffer instead of the command itself, so it never flashes and never answers. Stage the
 			// CRC there: command 03 puts it at offset 5 of the page buffer, command 05 copies that buffer
 			// into the reply buffer, and command 06 below only overwrites bytes 0-2. Harmless on newer firmware.
-			await this.writeCharacteristic.writeValueWithResponse(
-				new Uint8Array([0x03, 0, 0, 0, 0, 0, crc >> 8, crc & 0xff])
+			await ota.writeValueWithResponse(new Uint8Array([0x03, 0, 0, 0, 0, 0, crc >> 8, crc & 0xff]));
+			await this.writeAndAwaitReply(
+				ota,
+				new Uint8Array([0x05, 0, 0, 0, 0]),
+				(d) => d.length === 20,
+				3000
 			);
-			await this.otaRequest(new Uint8Array([0x05, 0, 0, 0, 0]), (d) => d.length === 20, 3000);
 
 			// Command 06: device sums the uploaded bank and replies 07 <crc hi> <crc lo>.
 			logStore.addLog('Verifying flash CRC on device...');
-			const verify = await this.otaRequest(
+			const verify = await this.writeAndAwaitReply(
+				ota,
 				new Uint8Array([0x06]),
 				(d) => d.length === 3 && d[0] === 0x07,
 				15000
@@ -703,7 +673,8 @@ class BleConnectionStore {
 			logStore.addLog('Sending final flash command: 07C001CEED' + crcHex);
 			let rejected: Uint8Array | null = null;
 			try {
-				rejected = await this.otaRequest(
+				rejected = await this.writeAndAwaitReply(
+					ota,
 					new Uint8Array([0x07, 0xc0, 0x01, 0xce, 0xed, crc >> 8, crc & 0xff]),
 					(d) => d[0] === 0x07 && d[1] === 0x00 && (d.length === 2 || d.length === 4),
 					5000

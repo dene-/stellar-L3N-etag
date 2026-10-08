@@ -1,5 +1,6 @@
 #include <string.h>
 #include "application/screen.h"
+#include "application/device_settings.h"
 #include "application/display.h"
 #include "application/telemetry.h"
 #include "application/ports/wall_clock.h"
@@ -11,17 +12,12 @@
 #include "sections.h"
 
 static RAM uint8_t scene = SCREEN_SCENE_DASHBOARD;
-// The first refresh after boot/OTA must be a full one: the panel RAM is blank and a partial
-// waveform draws nothing useful on it.
+// Redraw on the next update; also set at boot, when the panel content is unknown.
 static RAM uint8_t redraw_requested = 1;
 static RAM uint8_t drawn_minute = 100;
 static RAM slideshow_t slideshow;
 
-static uint8_t is_image_scene(uint8_t id)
-{
-    return id == SCREEN_SCENE_IMAGE || id == SCREEN_SCENE_SLIDESHOW;
-}
-
+// Images are always shown with a full refresh: a partial one cannot draw red.
 static void show_stored_image(uint8_t index)
 {
     uint16_t size = image_store_get_plane_size();
@@ -63,38 +59,60 @@ static void update_clock_scene(epd_scene_draw_fn draw, uint8_t ble_connected, co
     epd_canvas_init(&canvas, display_plane(DISPLAY_PLANE_BLACK), display_plane(DISPLAY_PLANE_RED), panel->width,
                     panel->height, panel->has_red);
     draw(&canvas, &data);
-    display_refresh_if_changed(redraw_requested);
+    display_refresh_if_changed(redraw_requested, device_settings_fast_refresh_enabled());
     redraw_requested = 0;
+}
+
+// Images stored for a panel of another size are not shown on this one.
+static uint8_t stored_images_fit(void)
+{
+    return image_store_has_images() && image_store_get_plane_size() == panel_plane_bytes(display_panel());
+}
+
+static void update_image(void)
+{
+    uint8_t pending;
+
+    if (display_is_refreshing() || !stored_images_fit())
+        return;
+    pending = image_store_take_display_pending();
+    if (pending || redraw_requested)
+    {
+        redraw_requested = 0;
+        show_stored_image(0);
+    }
 }
 
 static void update_slideshow(void)
 {
     uint8_t count = image_store_get_image_count();
-    uint32_t now = wall_clock_unix_time();
+    uint32_t now = wall_clock_uptime_seconds();
 
-    if (!count || !image_store_get_plane_size())
+    if (display_is_refreshing() || !stored_images_fit())
         return;
-    if (image_store_take_display_pending())
+    if (image_store_take_display_pending() || slideshow.index >= count)
     {
         slideshow_restart(&slideshow, now);
-        show_stored_image(slideshow.index);
-        return;
+        redraw_requested = 1;
     }
-    if (!display_is_refreshing() && slideshow_advance(&slideshow, now, image_store_get_interval_seconds(), count))
+    if (redraw_requested || slideshow_advance(&slideshow, now, image_store_get_interval_seconds(), count))
+    {
+        redraw_requested = 0;
         show_stored_image(slideshow.index);
+    }
 }
 
 void screen_set_scene(uint8_t new_scene)
 {
-    // Entering an image scene from a clock scene: clear the panel first so the controller's
-    // old-frame RAM doesn't ghost the clock into the image.
-    if (is_image_scene(new_scene) && !is_image_scene(scene) && !display_is_refreshing())
-    {
-        display_fill(0xFF, 0x00);
-        display_refresh(panel_plane_bytes(display_panel()), 1);
-    }
     scene = new_scene;
     screen_request_redraw();
+}
+
+void screen_hold_frame(void)
+{
+    scene = SCREEN_SCENE_IMAGE;
+    redraw_requested = 0;
+    image_store_take_display_pending();
 }
 
 void screen_request_redraw(void)
@@ -113,8 +131,7 @@ void screen_update(uint8_t ble_connected, const char *device_name)
     switch (scene)
     {
     case SCREEN_SCENE_IMAGE:
-        if (image_store_has_images() && image_store_take_display_pending())
-            show_stored_image(0);
+        update_image();
         break;
     case SCREEN_SCENE_CLOCK:
         update_clock_scene(epd_scene_draw_clock, ble_connected, device_name);
@@ -123,8 +140,7 @@ void screen_update(uint8_t ble_connected, const char *device_name)
         update_clock_scene(epd_scene_draw_dashboard, ble_connected, device_name);
         break;
     case SCREEN_SCENE_SLIDESHOW:
-        if (image_store_has_images())
-            update_slideshow();
+        update_slideshow();
         break;
     default:
         break;

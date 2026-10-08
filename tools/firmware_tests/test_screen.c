@@ -1,7 +1,9 @@
-// screen: the dashboard scene (default) redraw rules.
+// screen: the dashboard scene (default) redraw rules, normal and fast refresh mode.
+#include "application/device_settings.h"
 #include "application/display.h"
 #include "application/screen.h"
 #include "check.h"
+#include "domain/refresh_policy.h"
 #include "fakes.h"
 
 #define BWR296_PLANE_BYTES 4736
@@ -18,17 +20,27 @@ static void finish_refresh(void)
     display_poll();
 }
 
-int main(void)
+// Fresh fakes, an idle BWR296 panel with unknown content, the dashboard scene with a redraw requested.
+static void setup(void)
 {
-    int calls;
-
+    fake_panel_idle = 1;
+    display_poll(); // ends a refresh left running by the previous test
     fakes_reset();
-    fake_detect_model = PANEL_MODEL_BWR296;
+    device_settings_set_fast_refresh_enabled(0);
+    display_select_model(PANEL_MODEL_BWR296);
+    screen_set_scene(SCREEN_SCENE_DASHBOARD);
     fake_date.tm_year = 2026;
     fake_date.tm_month = 10;
     fake_date.tm_day = 8;
     fake_date.tm_hour = 13;
     set_minute(45);
+}
+
+static void test_dashboard_redraw_rules(void)
+{
+    int calls;
+
+    setup();
 
     // First update after boot: full refresh of the whole plane.
     screen_update(0, "THX_TEST");
@@ -77,6 +89,70 @@ int main(void)
     screen_update(0, "THX_TEST");
     CHECK_EQ(fake_refresh_calls, calls + 1);
     CHECK_EQ(fake_refresh_full, 1);
+}
 
+// Fast refresh mode: after the first full frame, clock frames (and redraws) are partial refreshes
+// for good; switching the panel (unknown content) is still full.
+static void test_fast_refresh_keeps_clock_frames_partial(void)
+{
+    int i;
+    int calls;
+
+    setup();
+    device_settings_set_fast_refresh_enabled(1);
+
+    screen_update(0, "THX_TEST");
+    CHECK_EQ(fake_refresh_calls, 1);
+    CHECK_EQ(fake_refresh_full, 1);
+    finish_refresh();
+
+    // More minutes than the anti-ghosting interval: no full refresh in between.
+    for (i = 1; i <= 2 * REFRESH_POLICY_FULL_INTERVAL; i++)
+    {
+        set_minute(45 + i % 15);
+        calls = fake_refresh_calls;
+        screen_update(0, "THX_TEST");
+        CHECK_EQ(fake_refresh_calls, calls + 1);
+        CHECK_EQ(fake_refresh_full, 0);
+        finish_refresh();
+    }
+
+    // A redraw of an unchanged frame is partial too.
+    calls = fake_refresh_calls;
+    screen_request_redraw();
+    screen_update(0, "THX_TEST");
+    CHECK_EQ(fake_refresh_calls, calls + 1);
+    CHECK_EQ(fake_refresh_full, 0);
+    finish_refresh();
+
+    screen_select_panel(PANEL_MODEL_BWR213);
+    screen_update(0, "THX_TEST");
+    CHECK_EQ(fake_refresh_full, 1);
+    CHECK_EQ(fake_refresh_size, BWR213_PLANE_BYTES);
+    device_settings_set_fast_refresh_enabled(0);
+}
+
+// Changing the scene draws the new scene directly, without a clearing refresh first.
+static void test_scene_switch_is_a_single_refresh(void)
+{
+    int calls;
+
+    setup();
+    screen_update(0, "THX_TEST");
+    finish_refresh();
+    calls = fake_refresh_calls;
+
+    screen_set_scene(SCREEN_SCENE_CLOCK);
+    CHECK_EQ(fake_refresh_calls, calls);
+    screen_update(0, "THX_TEST");
+    CHECK_EQ(fake_refresh_calls, calls + 1);
+    CHECK_EQ(fake_refresh_full, 1);
+}
+
+int main(void)
+{
+    test_dashboard_redraw_rules();
+    test_fast_refresh_keeps_clock_frames_partial();
+    test_scene_switch_is_a_single_refresh();
     return check_report();
 }

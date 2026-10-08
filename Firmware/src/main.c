@@ -11,6 +11,7 @@
 #include "application/telemetry.h"
 #include "ble/ble.h"
 #include "infrastructure/board.h"
+#include "infrastructure/epd/epd_panel.h"
 #include "infrastructure/i2c.h"
 #include "infrastructure/led.h"
 #include "infrastructure/nfc.h"
@@ -18,6 +19,9 @@
 #include "infrastructure/storage/image_store.h"
 #include "infrastructure/wall_clock.h"
 #include "sections.h"
+
+// Panel model whose BUSY idle level is armed as a wake-up source; PANEL_MODEL_AUTO = none.
+static RAM uint8_t busy_wakeup_model = PANEL_MODEL_AUTO;
 
 _attribute_ram_code_ __attribute__((optimize("-Os"))) void irq_handler(void)
 {
@@ -57,13 +61,24 @@ _attribute_ram_code_ static void main_loop(void)
 	status_led_update(connected);
 
 	if (display_poll())
-	{ // a refresh is running: sleep between BLE events only, and wake on the panel's BUSY pin
-		cpu_set_gpio_wakeup(EPD_BUSY, 1, 1);
+	{ // a refresh is running: sleep between BLE events only, and wake when the panel's BUSY pin goes idle
+		uint8_t model = display_panel()->model;
+
+		if (busy_wakeup_model != model) // (re)arm for this panel's idle level
+		{
+			epd_panel_wake_on_idle(model);
+			busy_wakeup_model = model;
+		}
 		bls_pm_setWakeupSource(PM_WAKEUP_PAD);
 		bls_pm_setSuspendMask(SUSPEND_ADV | SUSPEND_CONN);
 	}
 	else
 	{
+		if (busy_wakeup_model != PANEL_MODEL_AUTO)
+		{
+			epd_panel_wake_on_idle_off();
+			busy_wakeup_model = PANEL_MODEL_AUTO;
+		}
 		bls_pm_setSuspendMask(SUSPEND_ADV | DEEPSLEEP_RETENTION_ADV | SUSPEND_CONN | DEEPSLEEP_RETENTION_CONN);
 	}
 }
@@ -80,6 +95,8 @@ _attribute_ram_code_ int main(void) // must run in ramcode
 #elif (CLOCK_SYS_CLOCK_HZ == 24000000)
 	clock_init(SYS_CLK_24M_Crystal);
 #endif
+	if (!deepRetWakeUp)
+		image_store_repair_legacy_overlap();
 	blc_app_loadCustomizedParameters();
 
 	init_led();

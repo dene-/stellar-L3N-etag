@@ -119,10 +119,11 @@ _attribute_ram_code_ void EPD_CheckStatus_inverted(int max_ms)
     }
 }
 
-_attribute_ram_code_ void EPD_send_lut(uint8_t lut[], int len)
+// lut[0] is the LUT command, followed by its data; len counts both (sizeof the table).
+_attribute_ram_code_ void EPD_send_lut(const uint8_t lut[], int len)
 {
     EPD_WriteCmd(lut[0]);
-    for (int r = 1; r <= len; r++)
+    for (int r = 1; r < len; r++)
     {
         EPD_WriteData(lut[r]);
     }

@@ -5,8 +5,10 @@
 #include "application/device_settings.h"
 #include "domain/calendar.h"
 
-// wall_clock (default: now 0, date all zero)
+// wall_clock (default: now 0, uptime 0, date all zero). fake_now (unix time) only feeds the clock
+// face; intervals and timeouts run on fake_uptime.
 extern uint32_t fake_now;
+extern uint32_t fake_uptime;
 extern struct date_time fake_date;
 
 // epd_panel (default: detects PANEL_MODEL_BWR296, busy, temperature 20)
@@ -17,6 +19,7 @@ extern int fake_detect_calls;
 extern int fake_read_temperature_calls;
 extern int fake_refresh_calls;
 extern int fake_sleep_calls;
+extern uint8_t fake_sleep_model; // model of the last sleep
 // Arguments of the last refresh.
 extern uint8_t fake_refresh_model;
 extern uint16_t fake_refresh_size;

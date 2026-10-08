@@ -25,18 +25,22 @@ void display_fill(uint8_t black, uint8_t red);
 // Copies data into a plane of the current frame; 0 if it would run past the panel's plane size.
 uint8_t display_write(uint8_t plane, uint16_t offset, const uint8_t *data, uint16_t length);
 
-// Shows the first size bytes of both planes.
+// Shows the first size bytes (at most the panel's plane size) of both planes.
 void display_refresh(uint16_t size, uint8_t full);
 // Fills the black plane with pattern and shows it without red.
 void display_show_pattern(uint8_t pattern);
-// Shows the current frame as decided by domain/refresh_policy; returns 0 if it was unchanged.
-uint8_t display_refresh_if_changed(uint8_t force_full);
+// Shows the current frame as decided by domain/refresh_policy (redraw: even if unchanged; fast:
+// fast refresh mode); returns 0 if it was skipped.
+uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast);
 
 uint8_t display_is_refreshing(void);
-// Powers the panel down once a refresh has finished; returns whether one is still running.
+// Powers the panel down once a refresh has finished, or after DISPLAY_REFRESH_TIMEOUT seconds if
+// the panel never reports idle; returns whether one is still running.
+#define DISPLAY_REFRESH_TIMEOUT 60
 uint8_t display_poll(void);
 
-// Panel temperature in degrees C, re-measured at most every DISPLAY_TEMPERATURE_MAX_AGE seconds.
+// Panel temperature in degrees C, re-measured at most every DISPLAY_TEMPERATURE_MAX_AGE seconds and
+// never during a refresh (reading resets the controller).
 #define DISPLAY_TEMPERATURE_MAX_AGE 300
 int8_t display_read_temperature(void);
 // Last measured value, without touching the panel.

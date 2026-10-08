@@ -11,7 +11,8 @@ export type PhotoItem = {
 	usePixelArtResize: boolean;
 };
 
-export const FLASH_IMAGE_STORAGE_BYTES = 0x37000;
+// Mirrors IMAGE_STORE_DATA_ADDR..IMAGE_STORE_END_ADDR in Firmware/src/infrastructure/storage/image_store.c.
+export const FLASH_IMAGE_STORAGE_BYTES = 0x35000;
 const IMAGE_STORE_MAX_COUNT = 23;
 
 export async function loadPhotoItem(file: File, index: number): Promise<PhotoItem> {

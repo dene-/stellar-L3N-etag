@@ -24,7 +24,7 @@ int main(void)
     fake_date.tm_year = 2026;
     fake_date.tm_month = 10;
     fake_date.tm_day = 8;
-    fake_now = 1000;
+    fake_uptime = 1000;
 
     // Unknown models are rejected before the store is touched.
     CHECK_EQ(image_upload_begin(PANEL_MODEL_AUTO, INTERVAL, 2), 0);
@@ -44,7 +44,7 @@ int main(void)
     CHECK_EQ(image_upload_write(1, 1, 0, chunk, sizeof(chunk)), 1);
     CHECK_EQ(image_upload_finish(), 1);
 
-    // The upload clears the panel (leaving the clock scene), then the first image is shown in full.
+    // The first image is shown in full as soon as the panel is idle.
     finish_refresh();
     calls = fake_refresh_calls;
     screen_update(0, "THX_TEST");
@@ -57,11 +57,11 @@ int main(void)
     // Shown image stays until the interval passes, then the next one follows.
     finish_refresh();
     calls = fake_refresh_calls;
-    fake_now += INTERVAL - 1;
+    fake_uptime += INTERVAL - 1;
     screen_update(0, "THX_TEST");
     CHECK_EQ(fake_refresh_calls, calls);
 
-    fake_now += 1;
+    fake_uptime += 1;
     screen_update(0, "THX_TEST");
     CHECK_EQ(fake_refresh_calls, calls + 1);
     CHECK_EQ(fake_store_loaded_index, 1);

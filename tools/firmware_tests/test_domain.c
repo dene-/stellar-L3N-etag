@@ -52,30 +52,78 @@ static void test_refresh_policy(void)
     memset(black, 0xFF, SIZE);
     memset(red, 0x00, SIZE);
 
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_FULL);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_SKIP);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_SKIP);
 
     black[3] = 0x00;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_PARTIAL);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_SKIP);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_PARTIAL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_SKIP);
 
     red[5] = 0x01;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
 
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_SKIP);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_SKIP);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 0), REFRESH_FULL);
 
     // The last full refresh reset the counter: FULL_INTERVAL partial refreshes, then a full one.
     for (i = 0; i < REFRESH_POLICY_FULL_INTERVAL; i++)
     {
         black[0] = (uint8_t)i;
-        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_PARTIAL);
+        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_PARTIAL);
     }
     black[0] = 0xAA;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
 
     refresh_policy_forget(&policy);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
+}
+
+// Fast mode: only an unknown panel content or a red change forces a full refresh.
+static void test_refresh_policy_fast(void)
+{
+    enum { SIZE = 64 };
+    refresh_policy_t policy;
+    uint8_t black[SIZE], red[SIZE];
+    int i;
+
+    memset(&policy, 0, sizeof(policy));
+    memset(black, 0xFF, SIZE);
+    memset(red, 0x00, SIZE);
+
+    // The first frame (panel content unknown) is full even in fast mode.
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_SKIP);
+
+    // A requested redraw is partial, changed or not.
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_PARTIAL);
+    black[3] = 0x00;
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_PARTIAL);
+
+    // No periodic anti-ghosting full refresh: twice the interval of changes stays partial.
+    for (i = 0; i < 2 * REFRESH_POLICY_FULL_INTERVAL; i++)
+    {
+        black[0] = (uint8_t)i;
+        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_PARTIAL);
+    }
+
+    // A partial refresh cannot draw red.
+    red[5] = 0x01;
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_FULL);
+
+    // Unknown panel content is full in fast mode too.
+    black[1] = 0x12;
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_PARTIAL);
+    refresh_policy_forget(&policy);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_FULL);
+
+    // The partial counter saturates: after many fast partials, leaving fast mode is due a full refresh.
+    for (i = 0; i < 300; i++)
+    {
+        black[0] = (uint8_t)(i + 1);
+        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_PARTIAL);
+    }
+    black[0] = 0x77;
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
 }
 
 static void test_slideshow(void)
@@ -193,6 +241,7 @@ int main(void)
 {
     test_panel();
     test_refresh_policy();
+    test_refresh_policy_fast();
     test_slideshow();
     test_calendar();
     test_period();

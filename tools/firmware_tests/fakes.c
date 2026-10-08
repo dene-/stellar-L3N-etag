@@ -10,6 +10,7 @@
 #include "domain/panel.h"
 
 uint32_t fake_now;
+uint32_t fake_uptime;
 struct date_time fake_date;
 
 uint8_t fake_detect_model;
@@ -19,6 +20,7 @@ int fake_detect_calls;
 int fake_read_temperature_calls;
 int fake_refresh_calls;
 int fake_sleep_calls;
+uint8_t fake_sleep_model;
 uint8_t fake_refresh_model;
 uint16_t fake_refresh_size;
 uint8_t fake_refresh_full;
@@ -59,12 +61,14 @@ int fake_light_animate_calls;
 void fakes_reset(void)
 {
     fake_now = 0;
+    fake_uptime = 0;
     memset(&fake_date, 0, sizeof(fake_date));
 
     fake_detect_model = PANEL_MODEL_BWR296;
     fake_panel_temperature = 20;
     fake_panel_idle = 0;
     fake_detect_calls = fake_read_temperature_calls = fake_refresh_calls = fake_sleep_calls = 0;
+    fake_sleep_model = 0;
     fake_refresh_model = 0;
     fake_refresh_size = 0;
     fake_refresh_full = 0;
@@ -105,6 +109,11 @@ struct date_time wall_clock_date(void)
     return fake_date;
 }
 
+uint32_t wall_clock_uptime_seconds(void)
+{
+    return fake_uptime;
+}
+
 // epd_panel
 uint8_t epd_panel_detect(void)
 {
@@ -137,6 +146,7 @@ uint8_t epd_panel_is_idle(uint8_t model)
 void epd_panel_sleep(uint8_t model)
 {
     fake_sleep_calls++;
+    fake_sleep_model = model;
 }
 
 // image_storage

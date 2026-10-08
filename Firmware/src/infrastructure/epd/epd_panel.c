@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include "tl_common.h"
 #include "drivers.h"
-#include "application/ports/epd_panel.h"
+#include "infrastructure/epd/epd_panel.h"
 #include "domain/panel.h"
 #include "infrastructure/board.h"
 #include "infrastructure/uart.h"
@@ -11,6 +11,8 @@
 #include "infrastructure/epd/epd_bwr_154.h"
 #include "infrastructure/epd/epd_bwr_213.h"
 #include "infrastructure/epd/epd_bwr_296.h"
+
+#define BUSY_START_TIMEOUT_US 20000
 
 typedef struct
 {
@@ -81,20 +83,41 @@ _attribute_ram_code_ int8_t epd_panel_read_temperature(uint8_t model)
     return temperature;
 }
 
-_attribute_ram_code_ int8_t epd_panel_refresh(uint8_t model, uint8_t *black, uint8_t *red, uint16_t size, uint8_t full)
-{
-    power_up_and_reset(5);
-    return drivers[model].display(black, red, size, full);
-}
-
 _attribute_ram_code_ uint8_t epd_panel_is_idle(uint8_t model)
 {
     // EPD_IS_BUSY() reads BUSY as active low (UC8151); SSD16xx drive it active high.
     return drivers[model].busy_active_low ? !EPD_IS_BUSY() : EPD_IS_BUSY();
 }
 
+_attribute_ram_code_ int8_t epd_panel_refresh(uint8_t model, uint8_t *black, uint8_t *red, uint16_t size, uint8_t full)
+{
+    int8_t temperature;
+    uint32_t start;
+
+    power_up_and_reset(5);
+    temperature = drivers[model].display(black, red, size, full);
+
+    // The controller raises BUSY shortly after the refresh command; until it does, the panel
+    // would look idle and get powered down mid-refresh. Refreshes take far longer than this.
+    start = clock_time();
+    while (epd_panel_is_idle(model) && !clock_time_exceed(start, BUSY_START_TIMEOUT_US))
+        ;
+    return temperature;
+}
+
 _attribute_ram_code_ void epd_panel_sleep(uint8_t model)
 {
     drivers[model].sleep();
     EPD_POWER_OFF();
+}
+
+_attribute_ram_code_ void epd_panel_wake_on_idle(uint8_t model)
+{
+    // Idle level: high for UC8151 (BUSY_N), low for SSD16xx.
+    cpu_set_gpio_wakeup(EPD_BUSY, drivers[model].busy_active_low ? 1 : 0, 1);
+}
+
+_attribute_ram_code_ void epd_panel_wake_on_idle_off(void)
+{
+    cpu_set_gpio_wakeup(EPD_BUSY, 0, 0);
 }
