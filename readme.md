@@ -2,14 +2,9 @@
 
 <img src="images/banner.svg" width="100%" alt="Stellar firmware and web tool">
 
-<br>
-<br>
-
 [![Latest release](https://img.shields.io/github/v/release/dene-/stellar-L3N-etag?style=flat-square&label=firmware&labelColor=17181b&color=e8a464)](https://github.com/dene-/stellar-L3N-etag/releases/latest)
 [![Firmware build](https://img.shields.io/github/actions/workflow/status/dene-/stellar-L3N-etag/firmware-release.yml?branch=main&style=flat-square&label=build&labelColor=17181b)](https://github.com/dene-/stellar-L3N-etag/actions/workflows/firmware-release.yml)
 [![Web tool](https://img.shields.io/github/actions/workflow/status/dene-/stellar-L3N-etag/deploy-pages.yml?branch=main&style=flat-square&label=web%20tool&labelColor=17181b)](https://dene-.github.io/stellar-L3N-etag/)
-[![Chip](https://img.shields.io/badge/chip-Telink%20TLSR8359-4a4e56?style=flat-square&labelColor=17181b)](docs/DS_TLSR8359-E_Datasheet%20for%20Telink%20ULP%202.4GHz%20RF%20SoC%20TLSR8359.pdf)
-[![Browser](https://img.shields.io/badge/runs%20in-Chrome%20%C2%B7%20Edge-4a4e56?style=flat-square&labelColor=17181b)](https://dene-.github.io/stellar-L3N-etag/)
 
 <h3>
   <a href="https://dene-.github.io/stellar-L3N-etag/">Open the web tool</a>
@@ -22,51 +17,24 @@
 </h3>
 
 Custom firmware for **Hanshow Stellar** electronic shelf labels, built on the Telink TLSR8359
-Bluetooth chip, and a web tool that manages them from the browser.<br>
-Screens: a dashboard, a clock, the last picture sent, or a slideshow.
+Bluetooth chip, and a web tool that manages them from Chrome or Edge.
 
 </div>
 
-<br>
-
 ## Features
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h4>Four screens</h4>
-      A dashboard with time, temperature and battery, a large clock, your last picture, or a
-      slideshow. Only redrawn when something changed.
-    </td>
-    <td width="33%" valign="top">
-      <h4>Pictures</h4>
-      Dithered in the browser for the panel's colors, up to 22 stored on the tag. Change the
-      slideshow interval without uploading again.
-    </td>
-    <td width="33%" valign="top">
-      <h4>Browser setup</h4>
-      Everything runs in Chrome or Edge over Web Bluetooth; the first install uses Web Serial and a
-      USB adapter.
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <h4>Dual-bank updates</h4>
-      Two firmware banks: an update is written next to the running firmware and only started once
-      its checksum matches.
-    </td>
-    <td valign="top">
-      <h4>Timekeeping</h4>
-      Time zone and daylight saving rules for the next years, and a drift correction learned from
-      every sync.
-    </td>
-    <td valign="top">
-      <h4>Sensor advertising</h4>
-      Temperature, battery percentage and voltage advertised in the ATC1441 format, readable
-      without connecting.
-    </td>
-  </tr>
-</table>
+- **Screens**: a dashboard (time, temperature, battery), a large clock, the last picture sent, or
+  a slideshow. The panel is only redrawn when the picture changed.
+- **Pictures**: dithered in the browser for the panel's colors, up to 22 stored on the tag. The
+  slideshow interval can be changed without uploading again.
+- **No app**: the web tool uses Web Bluetooth; the first install uses Web Serial and a USB serial
+  adapter.
+- **Dual-bank updates**: an update is written next to the running firmware and only started once
+  its checksum matches.
+- **Timekeeping**: time zone and daylight saving rules for the next years, and a drift correction
+  measured at every sync.
+- **Sensor advertising**: temperature, battery percentage and voltage in the ATC1441 format,
+  readable without connecting.
 
 ## Screens
 
