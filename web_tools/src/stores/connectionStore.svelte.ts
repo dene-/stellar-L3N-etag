@@ -545,7 +545,7 @@ class BleConnectionStore {
 
 	// Writes `packet` and waits for the first notification on the same characteristic accepted by
 	// `accept`. Resolves to null if none arrives within timeoutMs (e.g. firmware too old to reply),
-	// even when the write itself never completes.
+	// or if the write itself doesn't complete in that time.
 	private async writeAndAwaitReply(
 		characteristic: BluetoothRemoteGATTCharacteristic,
 		packet: Uint8Array<ArrayBuffer>,
@@ -560,14 +560,21 @@ class BleConnectionStore {
 			if (accept(data)) resolve(data);
 		};
 		const timer = setTimeout(() => resolve(null), timeoutMs);
+		const { promise: timedOut, resolve: timeOut } = Promise.withResolvers<'timeout'>();
+		const writeTimer = setTimeout(() => timeOut('timeout'), timeoutMs);
 		characteristic.addEventListener('characteristicvaluechanged', onValue);
 
 		try {
-			const written = characteristic.writeValueWithResponse(packet);
-			written.catch(() => undefined); // a late failure after the reply or timeout is not an error here
-			return await Promise.race([written.then(() => reply), reply]);
+			// The reply notification often arrives before the write's acknowledgement. Returning then
+			// would leave the write in flight, and the next GATT operation fails with "GATT operation
+			// already in progress", so the write always settles first.
+			const written = characteristic.writeValueWithResponse(packet).then(() => 'written' as const);
+			written.catch(() => undefined); // a failure after a stalled write timed out is not an error here
+			if ((await Promise.race([written, timedOut])) === 'timeout') return null;
+			return await reply;
 		} finally {
 			clearTimeout(timer);
+			clearTimeout(writeTimer);
 			characteristic.removeEventListener('characteristicvaluechanged', onValue);
 		}
 	}
