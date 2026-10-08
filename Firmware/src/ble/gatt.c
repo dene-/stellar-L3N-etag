@@ -4,6 +4,7 @@
 #include "ble/gatt.h"
 #include "ble/ota_service.h"
 #include "ble/rxtx_commands.h"
+#include "domain/device_name.h"
 #include "sections.h"
 
 typedef struct
@@ -56,7 +57,9 @@ static u16 serviceChangeVal[2] = {0};
 
 static u8 serviceChangeCCC[2] = {0,0};
 
-static const u8 my_devName[] = {'T','H','X'};
+// Same as the advertised name; filled in by gatt_init(). Browsers read it after connecting
+// and show it instead of the advertised one.
+static RAM u8 my_devName[DEVICE_NAME_LENGTH];
 
 static const u8 my_PnPtrs [] = {0x02, 0x8a, 0x24, 0x66, 0x82, 0x01, 0x00};
 
@@ -204,8 +207,9 @@ static const attribute_t my_Attributes[] = {
 	{0,ATT_PERMISSIONS_RDWR, 2, sizeof(my_EPD_BLEInCCC),(u8*)(&clientCharacterCfgUUID), 	(u8*)(my_EPD_BLEInCCC), 0},	//value
 };
 
-void gatt_init(void)
+void gatt_init(const char *device_name)
 {
+	memcpy(my_devName, device_name, sizeof(my_devName));
 	bls_att_setAttributeTable ((u8 *)my_Attributes);
 }
 

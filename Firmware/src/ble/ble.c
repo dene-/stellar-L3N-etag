@@ -92,7 +92,7 @@ void ble_init(void)
 
 	////// Host Initialization  //////////
 	blc_gap_peripheral_init();
-	gatt_init();
+	gatt_init(device_name);
 	blc_l2cap_register_handler(blc_l2cap_packet_receive);
 	blc_smp_setSecurityLevel(No_Security);
 

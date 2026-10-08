@@ -186,9 +186,11 @@ class BleConnectionStore {
 		}
 
 		try {
+			// Tags advertise "THX_" plus the MAC. Firmware up to 0.11.0 reported plain "THX" after a connection,
+			// which browsers remember, so the prefix leaves out the separator.
 			const device = await navigator.bluetooth.requestDevice({
-				optionalServices: this.bleDeviceOptionalServicesIds,
-				acceptAllDevices: true
+				filters: [{ namePrefix: 'THX' }],
+				optionalServices: this.bleDeviceOptionalServicesIds
 			});
 			this.bleDevice?.removeEventListener('gattserverdisconnected', this.onGattDisconnected);
 			device.addEventListener('gattserverdisconnected', this.onGattDisconnected);
