@@ -46,9 +46,10 @@ A tag running the stock firmware has to be flashed over its serial pins once.
 2. Solder wires to GND, VCC, RX and RTS.
 3. Connect a USB serial adapter (CH340): RX to TX, TX to RX, VCC to 3.3 V, GND to GND. Connect RTS
    to pin 3 of the CH340G, or briefly short it to GND before flashing instead.
-4. In the web tool, open "Serial firmware flash", click "Open" and pick the adapter, select
-   `ATC_Paper.bin` from the [latest release](https://github.com/dene-/stellar-L3N-etag/releases/latest),
-   then click "Unlock Flash" and "Write to Flash". The screen redraws when the tag restarts.
+4. In the web tool, open "Serial firmware flash", click "Open" and pick the adapter, select the
+   `.bin` file from the [latest release](https://github.com/dene-/stellar-L3N-etag/releases/latest)
+   (or your own `Firmware/ATC_Paper.bin`), then click "Unlock Flash" and "Write to Flash". The
+   screen redraws when the tag restarts.
 5. Disconnect the adapter's TX line before using Bluetooth; the tag does not connect while it is
    attached.
 
@@ -56,7 +57,7 @@ A tag running the stock firmware has to be flashed over its serial pins once.
 
 ## Updating over Bluetooth
 
-Connect in the web tool, open "BLE firmware flash", select the new `ATC_Paper.bin` and upload it.
+Connect in the web tool, open "BLE firmware flash", select the new `.bin` file and upload it.
 The tag reboots into the new firmware and drops the connection; reconnect after about 10 seconds.
 
 The flash holds two 128 KiB firmware banks. An update is written to the bank that is not running
