@@ -1,11 +1,11 @@
-import { bwPalette, bwrPalette, canvas2bytes, ditheringCanvasByPalette } from '$lib/utils';
+import { bwPalette, bwrPalette, canvas2bytes, ditheringCanvasByPalette } from '#lib/utils.ts';
 import {
 	getContainSize,
 	getCoverCropRect,
 	pixelArtResize,
 	rotateSourceToCanvas
-} from '$lib/pixel-art-resize';
-import type { PhotoItem } from '$lib/photo-utils';
+} from '#lib/pixel-art-resize.ts';
+import type { PhotoItem } from '#lib/photo-utils.ts';
 import pica from 'pica';
 
 const imageResizer = pica();

@@ -1,4 +1,4 @@
-import type { ImageFitMode, ImageRotation } from '$lib/pixel-art-resize';
+import type { ImageFitMode, ImageRotation } from '#lib/pixel-art-resize.ts';
 
 export type PhotoItem = {
 	id: string;

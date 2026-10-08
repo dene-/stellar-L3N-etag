@@ -1,8 +1,7 @@
-// Declare globals that may be provided elsewhere
 import { logStore } from './logStore.svelte';
-import { intToHex, bytesToHex, hexToBytes } from '$lib/utils';
-import { buildSetTimeCommand } from '$lib/time-sync';
-import { FLASH_IMAGE_STORAGE_BYTES } from '$lib/photo-utils';
+import { intToHex, bytesToHex, hexToBytes } from '#lib/utils.ts';
+import { buildSetTimeCommand } from '#lib/time-sync.ts';
+import { FLASH_IMAGE_STORAGE_BYTES } from '#lib/photo-utils.ts';
 
 type DisplaySource = 'default' | 'firmware' | 'manual' | 'name';
 
@@ -11,6 +10,7 @@ type DisplayModelInfo = {
 	name: string;
 	width: number;
 	height: number;
+	hasRed: boolean;
 };
 
 type StoredImageBuffers = {
@@ -20,14 +20,22 @@ type StoredImageBuffers = {
 };
 
 export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
-	{ model: 0, name: 'Auto detect (2.9" or 2.13" BWR)', width: 250, height: 128 },
-	{ model: 1, name: 'BW213', width: 250, height: 128 },
-	{ model: 2, name: 'BWR213', width: 250, height: 128 },
-	{ model: 3, name: 'BWR154', width: 200, height: 200 },
-	{ model: 4, name: '213ICE', width: 212, height: 104 },
-	{ model: 5, name: 'BWR290 / BWR296', width: 296, height: 128 },
-	{ model: 6, name: 'BW290 / BW296', width: 296, height: 128 }
+	{ model: 0, name: 'Auto detect (2.9" or 2.13" BWR)', width: 250, height: 128, hasRed: true },
+	{ model: 1, name: 'BW213', width: 250, height: 128, hasRed: false },
+	{ model: 2, name: 'BWR213', width: 250, height: 128, hasRed: true },
+	{ model: 3, name: 'BWR154', width: 200, height: 200, hasRed: true },
+	{ model: 4, name: '213ICE', width: 212, height: 104, hasRed: false },
+	{ model: 5, name: 'BWR290 / BWR296', width: 296, height: 128, hasRed: true },
+	{ model: 6, name: 'BW290 / BW296', width: 296, height: 128, hasRed: false }
 ];
+
+// Scenes of the E1 command, see SCREEN_SCENE_* in Firmware/src/application/screen.h.
+export const SCENES = [
+	{ id: 2, name: 'Dashboard' },
+	{ id: 1, name: 'Clock' },
+	{ id: 0, name: 'Image' },
+	{ id: 3, name: 'Slideshow' }
+] as const;
 
 const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.model, info]));
 
@@ -80,7 +88,9 @@ class BleConnectionStore {
 	private bleDeviceOptionalServicesIds: string[] = [
 		'0000221f-0000-1000-8000-00805f9b34fb',
 		'00001f10-0000-1000-8000-00805f9b34fb',
-		'13187b10-eba9-a3ba-044e-83d3217d9a38'
+		'13187b10-eba9-a3ba-044e-83d3217d9a38',
+		'battery_service',
+		'environmental_sensing'
 	];
 	private rxtxServiceId = '00001f10-0000-1000-8000-00805f9b34fb';
 	private rxtxCharacteristicId = '00001f1f-0000-1000-8000-00805f9b34fb';
@@ -103,15 +113,29 @@ class BleConnectionStore {
 	deviceModelName = $state(DEFAULT_DISPLAY_INFO.name);
 	displayWidth = $state(DEFAULT_DISPLAY_INFO.width);
 	displayHeight = $state(DEFAULT_DISPLAY_INFO.height);
+	displayHasRed = $state(DEFAULT_DISPLAY_INFO.hasRed);
 	fastRefreshEnabled = $state(false);
 	fastRefreshSupported = $state(false);
 	displaySource: DisplaySource = $state('default');
+	// Sensor values the tag notifies every 30 s while connected; null until the first one.
+	temperatureC: number | null = $state(null);
+	batteryPercent: number | null = $state(null);
+	timeSyncedAt: Date | null = $state(null);
+	// The tag does not report these, so they are only known once set from this page.
+	activeScene: number | null = $state(null);
+	ledFlashingEnabled: boolean | null = $state(null);
+
+	// A transfer holds the link; other commands wait until it is done.
+	get busy() {
+		return this.isFlashingFirmware || this.isUploadingImages;
+	}
 
 	private applyDisplayModelInfo(info: DisplayModelInfo, source: DisplaySource) {
 		this.deviceModel = info.model;
 		this.deviceModelName = info.name;
 		this.displayWidth = info.width;
 		this.displayHeight = info.height;
+		this.displayHasRed = info.hasRed;
 		this.displaySource = source;
 	}
 
@@ -127,6 +151,7 @@ class BleConnectionStore {
 		this.deviceModelName = info.name;
 		this.displayWidth = width || info.width;
 		this.displayHeight = height || info.height;
+		this.displayHasRed = info.hasRed;
 		this.displaySource = source;
 	}
 
@@ -285,10 +310,10 @@ class BleConnectionStore {
 
 			const hex = bytesToHex(data);
 
-			// Firmware sends 2 bytes: int16 LE (temp * 10).
+			// E2 AA reply: int16 LE, tenths of a degree.
 			if (value.byteLength === 2) {
-				const t10 = value.getInt16(0, true);
-				logStore.addLog(`[From display][RXTX]: Temperature ${(t10 / 10).toFixed(1)}°C`);
+				this.temperatureC = value.getInt16(0, true) / 10;
+				logStore.addLog(`[From display][RXTX]: Temperature ${this.temperatureC.toFixed(1)}°C`);
 				return;
 			}
 
@@ -306,6 +331,40 @@ class BleConnectionStore {
 		await settled;
 		await this.queryDisplayInfo();
 		await this.syncTime();
+		await this.subscribeSensors();
+	}
+
+	// Battery level and temperature, read once and then notified by the tag every 30 s. Optional:
+	// a tag without these services still works.
+	private async subscribeSensors() {
+		const sensors = [
+			{
+				service: 'battery_service',
+				characteristic: 'battery_level',
+				apply: (value: DataView) => (this.batteryPercent = value.getUint8(0))
+			},
+			{
+				service: 'environmental_sensing',
+				characteristic: 0x2a1f, // temperature in tenths of a degree C
+				apply: (value: DataView) => (this.temperatureC = value.getInt16(0, true) / 10)
+			}
+		];
+		for (const sensor of sensors) {
+			try {
+				const service = await this.gattServer!.getPrimaryService(sensor.service);
+				const characteristic = await service.getCharacteristic(sensor.characteristic);
+				characteristic.addEventListener('characteristicvaluechanged', (event: Event) => {
+					const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
+					if (value) sensor.apply(value);
+				});
+				sensor.apply(await characteristic.readValue());
+				await characteristic.startNotifications();
+			} catch (e) {
+				logStore.addLog(
+					`No ${sensor.service.replace('_', ' ')} on this tag (${e instanceof Error ? e.message : e}).`
+				);
+			}
+		}
 	}
 
 	// Sets the tag's clock and time zone from this browser. Sent on every connect; the firmware
@@ -319,6 +378,7 @@ class BleConnectionStore {
 		logStore.addLog(`Setting the time: ${new Date().toLocaleString()}`);
 		try {
 			await this.rxtxCharacteristic.writeValueWithResponse(command);
+			this.timeSyncedAt = new Date();
 		} catch (e) {
 			await handleError(e);
 		}
@@ -359,17 +419,46 @@ class BleConnectionStore {
 		await this.queryDisplayInfo();
 	}
 
-	// Errors are logged, not thrown: the UI buttons call this without handling failures.
-	async sendRxTxCommand(command: string) {
+	async setScene(scene: number) {
+		if (await this.sendRxTxCommand(`e1${intToHex(scene, 1)}`)) this.activeScene = scene;
+	}
+
+	async setLedFlashing(enabled: boolean) {
+		if (await this.sendRxTxCommand(enabled ? 'e301' : 'e300')) this.ledFlashingEnabled = enabled;
+	}
+
+	async playLedRainbow(play: boolean) {
+		await this.sendRxTxCommand(play ? 'e401' : 'e400');
+	}
+
+	// Redraws the current screen with a full refresh.
+	async redraw() {
+		await this.sendRxTxCommand('e200');
+	}
+
+	async requestTemperature() {
+		await this.sendRxTxCommand('e2aa');
+	}
+
+	// Fills the screen with a repeating byte (a test pattern).
+	async drawPattern(byte: number) {
+		await this.sendRxTxCommand(`b1${intToHex(byte & 0xff, 1)}`);
+	}
+
+	// Errors are logged, not thrown: the UI buttons call this without handling failures. Returns
+	// whether the write went through.
+	private async sendRxTxCommand(command: string): Promise<boolean> {
 		if (!this.rxtxCharacteristic) {
 			logStore.addLog('Service unavailable. Is Bluetooth connected?');
-			return;
+			return false;
 		}
 		logStore.addLog(`Sending RXTX command: ${command}`);
 		try {
 			await this.rxtxCharacteristic.writeValueWithResponse(hexToBytes(command) as BufferSource);
+			return true;
 		} catch (e) {
 			await handleError(e);
+			return false;
 		}
 	}
 
@@ -404,7 +493,6 @@ class BleConnectionStore {
 			}
 		}
 
-		this.isFlashingFirmware = true;
 		this.isUploadingImages = true;
 		this.imageUploadProgress = 0;
 		this.suppressE5Notifications = true;
@@ -510,7 +598,6 @@ class BleConnectionStore {
 			);
 		} finally {
 			rxtx.removeEventListener('characteristicvaluechanged', chunkFailureListener);
-			this.isFlashingFirmware = false;
 			this.isUploadingImages = false;
 			this.suppressE5Notifications = false;
 		}
@@ -766,13 +853,17 @@ class BleConnectionStore {
 		this.fastRefreshSupported = false;
 		this.applyDisplayModelInfo(DEFAULT_DISPLAY_INFO, 'default');
 		this.selectedModel = DEFAULT_DISPLAY_INFO.model;
+		this.temperatureC = null;
+		this.batteryPercent = null;
+		this.timeSyncedAt = null;
+		this.activeScene = null;
+		this.ledFlashingEnabled = null;
 	}
 }
 
 export const bleConnectionStore = new BleConnectionStore();
 
-// Helper to match your existing error handling signature.
-// If you already have one elsewhere, remove this.
+// Logs a failed BLE operation; the UI calls the store without handling errors itself.
 async function handleError(e: unknown): Promise<void> {
 	console.error(e);
 	logStore.addLog('Error: ' + (e instanceof Error ? e.message : String(e)));

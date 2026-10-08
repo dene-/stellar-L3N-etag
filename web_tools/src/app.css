@@ -1,11 +1,223 @@
 @import 'tailwindcss';
-@plugin "@tailwindcss/typography";
-@plugin "daisyui" {
-	themes:
-		light --default,
-		dark --prefersdark;
+
+@theme {
+	--font-sans: 'Jost Variable', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+	--color-ink: #17181b;
+	--color-base: #1d1f23;
+	--color-raised: #24272c;
+	--color-line: #34373d;
+	--color-line-strong: #4a4e56;
+	--color-muted: #8d929b;
+	--color-soft: #b9bdc4;
+	--color-fg: #f1f1f2;
+	--color-accent: #e8a464;
+	--color-accent-strong: #f2b67c;
+	--color-danger: #e5776f;
+	--color-ok: #8cc49a;
+	--color-paper: #ecebe4;
 }
 
-body {
-	height: 100dvh;
+@layer base {
+	html {
+		color-scheme: dark;
+		background: var(--color-ink);
+	}
+
+	body {
+		min-height: 100dvh;
+		background: var(--color-base);
+		color: var(--color-fg);
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 3px;
+	}
+
+	button:disabled,
+	input:disabled,
+	select:disabled {
+		cursor: not-allowed;
+	}
+}
+
+@layer components {
+	/* Small uppercase labels, as in the navigation. */
+	.eyebrow {
+		font-size: 0.75rem;
+		font-weight: 500;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		color: var(--color-muted);
+	}
+
+	.display {
+		font-weight: 650;
+		letter-spacing: -0.01em;
+		line-height: 1.02;
+	}
+
+	/* Buttons: one filled accent action per view, outlined secondary ones, text tertiary ones. */
+	.btn {
+		display: inline-flex;
+		min-height: 2.75rem;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		border-radius: 999px;
+		padding: 0 1.4rem;
+		font-size: 0.8rem;
+		font-weight: 500;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		white-space: nowrap;
+		transition:
+			background-color 150ms,
+			border-color 150ms,
+			color 150ms;
+	}
+
+	.btn-primary {
+		background: var(--color-accent);
+		color: var(--color-ink);
+	}
+
+	.btn-primary:not(:disabled):hover {
+		background: var(--color-accent-strong);
+	}
+
+	.btn-outline {
+		border: 1px solid var(--color-line-strong);
+		color: var(--color-fg);
+	}
+
+	.btn-outline:not(:disabled):hover {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	.btn-text {
+		padding: 0 0.25rem;
+		color: var(--color-soft);
+	}
+
+	.btn-text:not(:disabled):hover {
+		color: var(--color-accent);
+	}
+
+	.btn:disabled {
+		opacity: 0.4;
+	}
+
+	/* The reference's "line + label" call to action. */
+	.cta {
+		display: inline-flex;
+		min-height: 2.75rem;
+		align-items: center;
+		gap: 1.1rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--color-accent);
+	}
+
+	.cta::before {
+		content: '';
+		width: 3.5rem;
+		height: 2px;
+		background: currentColor;
+		transition: width 200ms;
+	}
+
+	.cta:not(:disabled):hover::before {
+		width: 4.5rem;
+	}
+
+	.cta:disabled {
+		opacity: 0.4;
+	}
+
+	/* Round outlined icon buttons. */
+	.icon-btn {
+		display: inline-grid;
+		width: 2.75rem;
+		height: 2.75rem;
+		flex: none;
+		place-items: center;
+		border: 1px solid var(--color-line-strong);
+		border-radius: 999px;
+		color: var(--color-soft);
+		transition:
+			border-color 150ms,
+			color 150ms;
+	}
+
+	.icon-btn:not(:disabled):hover,
+	.icon-btn-accent {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	.icon-btn:disabled {
+		opacity: 0.35;
+	}
+
+	.field {
+		min-height: 2.75rem;
+		width: 100%;
+		border: 1px solid var(--color-line-strong);
+		border-radius: 0.6rem;
+		background: var(--color-base);
+		padding: 0 0.9rem;
+		color: var(--color-fg);
+	}
+
+	.field:hover:not(:disabled) {
+		border-color: var(--color-muted);
+	}
+
+	.field:disabled {
+		opacity: 0.45;
+	}
+
+	select.field {
+		appearance: none;
+		padding-right: 2.5rem;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%238d929b' stroke-width='1.5'%3E%3Cpath d='m1 1.5 5 5 5-5'/%3E%3C/svg%3E");
+		background-position: right 1rem center;
+		background-repeat: no-repeat;
+	}
+
+	.panel {
+		border: 1px solid var(--color-line);
+		border-radius: 1rem;
+		background: var(--color-raised);
+	}
+
+	.progress {
+		height: 2px;
+		width: 100%;
+		overflow: hidden;
+		background: var(--color-line);
+	}
+
+	.progress > span {
+		display: block;
+		height: 100%;
+		background: var(--color-accent);
+		transition: width 200ms;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before {
+		transition: none !important;
+		animation: none !important;
+	}
 }
