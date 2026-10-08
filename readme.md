@@ -1,32 +1,107 @@
-# Hanshow Stellar e-paper tag firmware
+<div align="center">
 
-Custom firmware for Hanshow Stellar electronic shelf labels built on the Telink TLSR8359 (TLSR825x)
-Bluetooth chip. The tag shows a clock dashboard, an uploaded image or a slideshow, and is managed
-from a browser over Bluetooth. Based on [ATC_TLSR_Paper](https://github.com/atc1441/ATC_TLSR_Paper)
-by atc1441.
+<img src="images/banner.svg" width="100%" alt="Stellar: e-paper, from the browser">
 
-<img src="images/scene-dashboard-296.png" width="25%" alt="Dashboard on a 2.9&quot; tag"> <img src="images/scene-clock-296.png" width="25%" alt="Clock on a 2.9&quot; tag"> <img src="images/scene-dashboard-213.png" width="25%" alt="Dashboard on a 2.13&quot; tag">
+<br>
+<br>
 
-The screens above are rendered by `tools/scene_preview` from the same code that runs on the tag.
+[![Latest release](https://img.shields.io/github/v/release/dene-/stellar-L3N-etag?style=flat-square&label=firmware&labelColor=17181b&color=e8a464)](https://github.com/dene-/stellar-L3N-etag/releases/latest)
+[![Firmware build](https://img.shields.io/github/actions/workflow/status/dene-/stellar-L3N-etag/firmware-release.yml?branch=main&style=flat-square&label=build&labelColor=17181b)](https://github.com/dene-/stellar-L3N-etag/actions/workflows/firmware-release.yml)
+[![Web tool](https://img.shields.io/github/actions/workflow/status/dene-/stellar-L3N-etag/deploy-pages.yml?branch=main&style=flat-square&label=web%20tool&labelColor=17181b)](https://dene-.github.io/stellar-L3N-etag/)
+[![Chip](https://img.shields.io/badge/chip-Telink%20TLSR8359-4a4e56?style=flat-square&labelColor=17181b)](docs/DS_TLSR8359-E_Datasheet%20for%20Telink%20ULP%202.4GHz%20RF%20SoC%20TLSR8359.pdf)
+[![Browser](https://img.shields.io/badge/runs%20in-Chrome%20%C2%B7%20Edge-4a4e56?style=flat-square&labelColor=17181b)](https://dene-.github.io/stellar-L3N-etag/)
 
-## Supported tags
+<h3>
+  <a href="https://dene-.github.io/stellar-L3N-etag/">Open the web tool</a>
+  ·
+  <a href="#getting-started">Getting started</a>
+  ·
+  <a href="#bluetooth-protocol">Protocol</a>
+  ·
+  <a href="#building">Building</a>
+</h3>
 
-| Tag | Panel | Tested on hardware |
-| --- | --- | --- |
-| Stellar L3N@ 2.9" | BWR296, 296x128, black/white/red | yes |
-| Stellar Pro 213R-N | BWR213, 250x122, black/white/red | yes |
-| Other Stellar tags with these panels | see [Display models](#display-models) | no |
+Custom firmware for **Hanshow Stellar** electronic shelf labels, built on the Telink TLSR8359
+Bluetooth chip, and a web tool that manages them from the browser.<br>
+A clock dashboard, your own pictures or a slideshow, on black, white and red e-paper.
 
-`Compatible_models/` has photos of other Stellar variants.
+</div>
+
+<br>
+
+## Highlights
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h4>Four screens</h4>
+      A dashboard with time, temperature and battery, a large clock, your last picture, or a
+      slideshow. Only redrawn when something changed.
+    </td>
+    <td width="33%" valign="top">
+      <h4>Your pictures</h4>
+      Dithered in the browser for the panel's colors, up to 22 stored on the tag. Change the
+      slideshow interval without uploading again.
+    </td>
+    <td width="33%" valign="top">
+      <h4>No app to install</h4>
+      Everything runs in Chrome or Edge over Web Bluetooth; the first install uses Web Serial and a
+      USB adapter.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>Safe updates</h4>
+      Two firmware banks: an update is written next to the running firmware and only started once
+      its checksum matches.
+    </td>
+    <td valign="top">
+      <h4>A clock that keeps time</h4>
+      Time zone and daylight saving rules for the next years, and a drift correction learned from
+      every sync.
+    </td>
+    <td valign="top">
+      <h4>Sensors on the air</h4>
+      Temperature, battery percentage and voltage advertised in the ATC1441 format, readable
+      without connecting.
+    </td>
+  </tr>
+</table>
+
+## Screens
+
+<table>
+  <tr>
+    <td align="center"><img src="images/scene-dashboard-296.png" alt="Dashboard on a 2.9&quot; tag"></td>
+    <td align="center"><img src="images/scene-clock-296.png" alt="Clock on a 2.9&quot; tag"></td>
+    <td align="center"><img src="images/scene-dashboard-213.png" alt="Dashboard on a 2.13&quot; tag"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Dashboard</b> · 2.9"</sub></td>
+    <td align="center"><sub><b>Clock</b> · 2.9"</sub></td>
+    <td align="center"><sub><b>Dashboard</b> · 2.13"</sub></td>
+  </tr>
+</table>
+
+<sub>Rendered by <code>tools/scene_preview</code> from the same code that runs on the tag.</sub>
 
 ## Web tool
 
-Open <https://dene-.github.io/stellar-L3N-etag/> in Chrome or Edge (Web Bluetooth; the USB
-flasher also needs Web Serial). To run it locally, with Node 22.17 or later:
-`cd web_tools && yarn install && yarn dev`.
+<table>
+  <tr>
+    <td align="center"><a href="images/web-home.png"><img src="images/web-home.png" alt="Start page"></a></td>
+    <td align="center"><a href="images/web-device.png"><img src="images/web-device.png" alt="Device page"></a></td>
+    <td align="center"><a href="images/web-images.png"><img src="images/web-images.png" alt="Images page"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Start</b></sub></td>
+    <td align="center"><sub><b>Device</b></sub></td>
+    <td align="center"><sub><b>Images</b></sub></td>
+  </tr>
+</table>
 
-Connecting opens the browser's Bluetooth picker, which lists only tags (names starting with
-`THX`). The tool has three pages:
+Open <https://dene-.github.io/stellar-L3N-etag/> in Chrome or Edge. Connecting opens the browser's
+Bluetooth picker, which lists only tags (names starting with `THX`).
 
 - **Device**: what the tag shows (all four screens as cards; the one on the tag is marked "On
   screen"), its name, firmware version, temperature and battery, the display model and the status
@@ -39,45 +114,78 @@ Connecting opens the browser's Bluetooth picker, which lists only tags (names st
 - **Firmware**: shows the version on the tag and whether a newer release exists, and installs a
   release (or a `.bin` file of your own) over Bluetooth, or over a USB serial adapter.
 
-The log of everything sent to and received from the tag opens from the icon at the top right.
+The log of everything sent to and received from the tag opens from the icon at the top right. To
+run the tool locally, with Node 22.17 or later: `cd web_tools && yarn install && yarn dev`.
 
-<img src="images/web-home.png" width="25%" alt="Start page"> <img src="images/web-device.png" width="25%" alt="Device page"> <img src="images/web-images.png" width="25%" alt="Images page">
+> [!NOTE]
+> Firmware up to v0.11.0 reports its name as just `THX` once connected (the GAP Device Name), and
+> browsers remember it, so such a tag shows up as `THX` instead of `THX_` plus its MAC address. From
+> v0.12.0 on it reports the full name; the browser may keep showing `THX` until it reads the name
+> again.
 
-Firmware up to v0.11.0 reports its name as just `THX` once connected (the GAP Device Name), and
-browsers remember it, so such a tag shows up as `THX` instead of `THX_` plus its MAC address. From
-v0.12.0 on it reports the full name; the browser may keep showing `THX` until it reads the name
-again.
+## Supported tags
 
-## First install (UART)
+| Tag | Panel | Tested on hardware |
+| --- | --- | :---: |
+| Stellar L3N@ 2.9" | BWR296, 296×128, black/white/red | ✓ |
+| Stellar Pro 213R-N | BWR213, 250×122, black/white/red | ✓ |
+| Other Stellar tags with these panels | see [Display models](#display-models) | |
+
+`Compatible_models/` has photos of other Stellar variants.
+
+## Getting started
+
+### 1. First install over UART
 
 A tag running the stock firmware has to be flashed over its serial pins once.
 
-1. Open the battery cover and check that the board matches the photo below, or that the chip is a
+<img src="USB_UART_Flashing_connection.jpg" align="right" width="42%" alt="UART wiring">
+
+1. Open the battery cover and check that the board matches the photo, or that the chip is a
    TLSR8359.
 2. Solder wires to GND, VCC, RX and RTS.
 3. Connect a USB serial adapter (CH340): RX to TX, TX to RX, VCC to 3.3 V, GND to GND. Connect RTS
    to pin 3 of the CH340G, or briefly short it to GND before flashing instead.
-4. In the web tool, open "Firmware" and, under "First install over USB", click "Open port" and pick
-   the adapter. Select the `.bin` file from the
+4. In the web tool, open **Firmware** and, under "First install over USB", click **Open port** and
+   pick the adapter. Select the `.bin` file from the
    [latest release](https://github.com/dene-/stellar-L3N-etag/releases/latest) (or your own
-   `Firmware/ATC_Paper.bin`), then click "Unlock flash" and "Write firmware". The screen redraws
-   when the tag restarts.
+   `Firmware/ATC_Paper.bin`), then click **Unlock flash** and **Write firmware**. The screen
+   redraws when the tag restarts.
 5. Disconnect the adapter's TX line before using Bluetooth; the tag does not connect while it is
    attached.
 
-![UART wiring](USB_UART_Flashing_connection.jpg)
+<br clear="right">
 
-## Updating over Bluetooth
+### 2. Updates over Bluetooth
 
-Connect in the web tool and open "Firmware". Under "Update over Bluetooth" the latest release is
+Connect in the web tool and open **Firmware**. Under "Update over Bluetooth" the latest release is
 already selected (older ones from v0.7.0 on, or a `.bin` file of your own, can be picked instead);
-click "Install". The Device page says when the tag runs an older version than the latest release.
-The tag reboots into the new firmware and drops the connection; reconnect after about 10 seconds.
+click **Install**. The Device page says when the tag runs an older version than the latest
+release. The tag reboots into the new firmware and drops the connection; reconnect after about 10
+seconds.
+
+```mermaid
+sequenceDiagram
+    participant W as Web tool
+    participant T as Tag, running bank A
+    loop every 236 bytes of the image
+        W->>T: 08 offset data
+        Note right of T: erases a 4 KiB sector of bank B<br/>the first time the upload reaches it
+        T-->>W: write response
+    end
+    W->>T: 06 (checksum?)
+    T-->>W: 07 crc
+    W->>T: 07 C001CEED crc
+    Note right of T: marks bank B bootable,<br/>clears bank A's flag, reboots
+```
 
 The flash holds two 128 KiB firmware banks. An update is written to the bank that is not running
 and only started once its checksum matches, so a failed or interrupted upload leaves the current
-firmware in place. Firmware before v0.8.0 copies the update over itself instead: the first update
-from such a version still must not lose power while it runs.
+firmware in place.
+
+> [!WARNING]
+> Firmware before v0.8.0 copies the update over itself instead: the first update from such a
+> version must not lose power while it runs.
 
 Firmware from v0.11.0 on takes the image with its offset in each write (command 08) and erases each
 flash sector when the upload reaches it, so there is no erase pass and no separate commit per page.
@@ -85,7 +193,11 @@ Older firmware takes it one 256-byte page at a time, three writes per page; the 
 installs v0.11.0 still runs that way. Every write waits for the tag's response: the web tool used to
 send command 08 without waiting, and the tag stopped answering about 10 KiB into the upload.
 
-## Clock
+## How it works
+
+<details>
+<summary><b>Clock</b>: UTC, time zones and drift correction</summary>
+<br>
 
 The tag keeps UTC. On every connect the web tool sends the time, the browser's time zone offset and
 its daylight saving changes for the next few years (up to 8), so the tag switches between summer
@@ -96,21 +208,11 @@ at least 6 hours after the previous one measures the drift and stores a correcti
 gets more accurate the more often you connect. The time is lost when the battery is removed; the
 screens then show `--:--` until the next connect.
 
-## Battery and temperature
+</details>
 
-The battery level is estimated from the cell voltage along a CR2032 discharge curve: about 100 %
-at 3.0 V, 42 % at 2.9 V, 18 % at 2.74 V, 0 % at 2.1 V. The voltage stays flat for most of a coin
-cell's life, so the percentage falls slowly at first and quickly near the end.
-
-The only temperature sensor is the one in the panel controller. SSD16xx panels report it in steps
-of 1/16 °C, UC8151 panels (the 2.13" ones) in whole degrees. It is measured on every screen
-refresh, every 30 seconds while connected and every 5 minutes otherwise. The sensor sits inside the
-display module, so it follows the room with some delay.
-
-The tag advertises temperature, battery percentage and voltage in the ATC1441 format (service data
-UUID 0x181A).
-
-## Screens
+<details>
+<summary><b>Screens and refreshes</b>: partial, full and "finish on the minute"</summary>
+<br>
 
 | Scene | Shows |
 | --- | --- |
@@ -133,6 +235,12 @@ the next time ahead and starts its refresh early by as long as the last refresh 
 (plus up to a second, as it wakes about once a second), so the new time is on the screen as the
 minute changes. Until a partial and a full refresh have been measured it assumes 3 and 20 seconds.
 
+</details>
+
+<details>
+<summary><b>Pictures</b>: storage and uploads</summary>
+<br>
+
 Uploaded images are stored in flash: at most 23 and at most 212 KiB, which is 22 images on a 2.9"
 panel and 21 on a 1.54" one. Images uploaded for one panel size are not shown on another.
 
@@ -147,17 +255,37 @@ the radio calibration. The first boot of a newer version deletes such a store an
 sectors, so the tag gets a new MAC address and `THX_…` name once and its images have to be
 uploaded again.
 
-## Display models
+</details>
+
+<details>
+<summary><b>Battery and temperature</b>: CR2032 curve and the panel's sensor</summary>
+<br>
+
+The battery level is estimated from the cell voltage along a CR2032 discharge curve: about 100 %
+at 3.0 V, 42 % at 2.9 V, 18 % at 2.74 V, 0 % at 2.1 V. The voltage stays flat for most of a coin
+cell's life, so the percentage falls slowly at first and quickly near the end.
+
+The only temperature sensor is the one in the panel controller. SSD16xx panels report it in steps
+of 1/16 °C, UC8151 panels (the 2.13" ones) in whole degrees. It is measured on every screen
+refresh, every 30 seconds while connected and every 5 minutes otherwise. The sensor sits inside the
+display module, so it follows the room with some delay.
+
+The tag advertises temperature, battery percentage and voltage in the ATC1441 format (service data
+UUID 0x181A).
+
+</details>
+
+### Display models
 
 | `E0` model | Panel | Resolution | Colors | Controller |
-| --- | --- | --- | --- | --- |
+| :---: | --- | --- | --- | --- |
 | 0 | Auto-detect (default) | | | |
-| 1 | BW213 | 250x122 | black/white | UC8151 |
-| 2 | BWR213 (Stellar Pro 213R-N) | 250x122 | black/white/red | UC8151 |
-| 3 | BWR154 | 200x200 | black/white/red | SSD16xx |
-| 4 | 213ICE | 212x104 | black/white | SSD16xx |
-| 5 | BWR290 / BWR296 (Stellar L3N@, 290R-N) | 296x128 | black/white/red | SSD16xx |
-| 6 | BW290 / BW296 | 296x128 | black/white | SSD16xx |
+| 1 | BW213 | 250×122 | black/white | UC8151 |
+| 2 | BWR213 (Stellar Pro 213R-N) | 250×122 | black/white/red | UC8151 |
+| 3 | BWR154 | 200×200 | black/white/red | SSD16xx |
+| 4 | 213ICE | 212×104 | black/white | SSD16xx |
+| 5 | BWR290 / BWR296 (Stellar L3N@, 290R-N) | 296×128 | black/white/red | SSD16xx |
+| 6 | BW290 / BW296 | 296×128 | black/white | SSD16xx |
 
 Auto-detect only tells the two controller families apart (by the level the BUSY pin idles at after
 a reset) and picks model 5 or 2. Black/white panels, the 2.13" ICE and the 1.54" have to be chosen
@@ -168,11 +296,15 @@ images) are sent as columns of whole bytes, rightmost column first, top pixel in
 significant bit, so each 2.13" column carries 6 unused bits at the bottom. Firmware before v0.9.0
 drew the clock screens 128 rows high there, so their bottom 6 rows were cut off.
 
-## Bluetooth commands
+## Bluetooth protocol
 
 Commands are written to characteristic `0x1F1F` of service `0x1F10`, one per write, opcode first.
 Replies come back as notifications on the same characteristic. Multi-byte values are little endian
 unless noted.
+
+<details>
+<summary><b>Command reference</b></summary>
+<br>
 
 | Command | Effect |
 | --- | --- |
@@ -180,8 +312,8 @@ unless noted.
 | `DD …` | Set the clock and time zone, see `set_time` in `Firmware/src/ble/rxtx_commands.c` |
 | `DE` | Restore the default settings |
 | `DF` | Save the settings now (they are also saved on disconnect) |
-| `E0 <model>` | Select the display model (table above) |
-| `E1 <scene>`, `E1 AA` | Switch the screen (table above); `AA` replies `E1 AA <scene>` |
+| `E0 <model>` | Select the display model ([table](#display-models)) |
+| `E1 <scene>`, `E1 AA` | Switch the screen (scenes 0 to 3); `AA` replies `E1 AA <scene>` |
 | `E2 AA` | Reply with the temperature, int16 in 0.1 °C |
 | `E2 AB` | Reply `E2 AB <model> <width:2> <height:2> <stored model>`; height is the visible rows |
 | `E2 <other>` | Redraw with a full refresh |
@@ -193,10 +325,12 @@ unless noted.
 | `E8` | Reply `E8 <version>`, the firmware version in ASCII (`0.10.0`) |
 | `E9 AA`, `E9 01 <seconds:2>` | Query the stored images, or change their slideshow interval; replies `E9 AA <images> <seconds:2>` (0 seconds = a minute) |
 
+</details>
+
 Firmware updates use characteristic `0x331F` of service `0x221F`; `Firmware/src/ble/ota_service.c`
 describes the protocol.
 
-## Flash layout
+### Flash layout
 
 | Address | Contents |
 | --- | --- |
@@ -224,7 +358,7 @@ on (`tools/bundle_firmware_releases.py`; browsers can't download GitHub release 
 firmware reports `make FIRMWARE_VERSION=…`; `build_docker.sh` passes `git describe`, e.g.
 `0.9.0-3-g2843ceb`.
 
-## Source layout
+### Source layout
 
 `Firmware/src` is split into layers; includes only point inwards.
 
@@ -251,3 +385,12 @@ Scene layouts are in `domain/epd_scenes.c`. Text uses the Spleen bitmap font, co
 - [TLSR8359 datasheet](docs/DS_TLSR8359-E_Datasheet%20for%20Telink%20ULP%202.4GHz%20RF%20SoC%20TLSR8359.pdf)
 - [Telink Kite BLE SDK handbook (Chinese)](docs/Telink%20Kite%20BLE%20SDK%20Developer%20Handbook中文.pdf)
 - [SSD1680 display controller datasheet](docs/SSD1680.pdf)
+
+<br>
+
+<div align="center">
+<sub>
+Based on <a href="https://github.com/atc1441/ATC_TLSR_Paper">ATC_TLSR_Paper</a> by atc1441,
+with the Stellar Pro 213R-N changes by thxomas.
+</sub>
+</div>
