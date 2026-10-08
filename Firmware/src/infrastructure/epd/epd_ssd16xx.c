@@ -79,9 +79,9 @@ _attribute_ram_code_ void epd_ssd16xx_init(const epd_ssd16xx_config_t *cfg)
   }
 }
 
-_attribute_ram_code_ uint8_t epd_ssd16xx_read_temp(const epd_ssd16xx_config_t *cfg)
+_attribute_ram_code_ int16_t epd_ssd16xx_read_temp(const epd_ssd16xx_config_t *cfg)
 {
-  uint8_t temp;
+  int16_t temp;
 
   epd_ssd16xx_init(cfg);
 
@@ -94,9 +94,7 @@ _attribute_ram_code_ uint8_t epd_ssd16xx_read_temp(const epd_ssd16xx_config_t *c
   EPD_CheckStatus_inverted(100);
 
   // Temperature sensor read from register
-  EPD_WriteCmd(0x1B);
-  temp = EPD_SPI_read();
-  EPD_SPI_read(); // discard second byte
+  temp = EPD_ReadTemperature(0x1B, 1);
 
   WaitMs(5);
 

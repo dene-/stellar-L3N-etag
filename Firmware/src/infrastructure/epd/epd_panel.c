@@ -3,6 +3,7 @@
 #include "drivers.h"
 #include "infrastructure/epd/epd_panel.h"
 #include "domain/panel.h"
+#include "domain/temperature.h"
 #include "infrastructure/board.h"
 #include "infrastructure/uart.h"
 #include "infrastructure/epd/epd_spi.h"
@@ -17,8 +18,8 @@
 typedef struct
 {
     uint8_t busy_active_low; // UC8151 family: BUSY low while refreshing; SSD16xx: high
-    uint8_t (*read_temp)(void);
-    uint8_t (*display)(unsigned char *black, unsigned char *red, int size, uint8_t full_or_partial); // red may be NULL
+    int16_t (*read_temp)(void);                                                                     // 1/256 degrees C
+    int16_t (*display)(unsigned char *black, unsigned char *red, int size, uint8_t full_or_partial); // red may be NULL
     void (*sleep)(void);
 } epd_driver_t;
 
@@ -73,14 +74,14 @@ _attribute_ram_code_ uint8_t epd_panel_detect(void)
     return model;
 }
 
-_attribute_ram_code_ int8_t epd_panel_read_temperature(uint8_t model)
+_attribute_ram_code_ int16_t epd_panel_read_temperature(uint8_t model)
 {
-    int8_t temperature;
+    int16_t temperature;
 
     power_up_and_reset(5);
     temperature = drivers[model].read_temp();
     EPD_POWER_OFF();
-    return temperature;
+    return temperature_x10_from_x256(temperature);
 }
 
 _attribute_ram_code_ uint8_t epd_panel_is_idle(uint8_t model)
@@ -89,9 +90,9 @@ _attribute_ram_code_ uint8_t epd_panel_is_idle(uint8_t model)
     return drivers[model].busy_active_low ? !EPD_IS_BUSY() : EPD_IS_BUSY();
 }
 
-_attribute_ram_code_ int8_t epd_panel_refresh(uint8_t model, uint8_t *black, uint8_t *red, uint16_t size, uint8_t full)
+_attribute_ram_code_ int16_t epd_panel_refresh(uint8_t model, uint8_t *black, uint8_t *red, uint16_t size, uint8_t full)
 {
-    int8_t temperature;
+    int16_t temperature;
     uint32_t start;
 
     power_up_and_reset(5);
@@ -102,7 +103,7 @@ _attribute_ram_code_ int8_t epd_panel_refresh(uint8_t model, uint8_t *black, uin
     start = clock_time();
     while (epd_panel_is_idle(model) && !clock_time_exceed(start, BUSY_START_TIMEOUT_US))
         ;
-    return temperature;
+    return temperature_x10_from_x256(temperature);
 }
 
 _attribute_ram_code_ void epd_panel_sleep(uint8_t model)

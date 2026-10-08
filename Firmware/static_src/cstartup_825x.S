@@ -74,6 +74,8 @@ __start:					@ MUST,  referenced by boot.link
 #endif
 	.org 0x18
 	.word	(_bin_size_)
+	.org 0x1C
+	.word	(0x4B4E4232)	@ "2BNK": runs from either flash bank, see FIRMWARE_DUAL_BANK_MAGIC
 @********************************************************************************************************
 @                                   LOW-LEVEL INITIALIZATION
 @********************************************************************************************************

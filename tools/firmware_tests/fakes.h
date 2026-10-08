@@ -3,17 +3,17 @@
 // call fakes_reset() first thing in main() to set the defaults noted below.
 #include <stdint.h>
 #include "application/device_settings.h"
-#include "domain/calendar.h"
 
-// wall_clock (default: now 0, uptime 0, date all zero). fake_now (unix time) only feeds the clock
-// face; intervals and timeouts run on fake_uptime.
-extern uint32_t fake_now;
+// wall_clock (default: UTC 0 = not set, uptime 0, trim 0). Intervals and timeouts run on
+// fake_uptime; fake_utc only feeds the local time. fake_clock_trim is the last trim set.
+extern uint32_t fake_utc;
+extern uint16_t fake_utc_ms;
 extern uint32_t fake_uptime;
-extern struct date_time fake_date;
+extern int16_t fake_clock_trim;
 
-// epd_panel (default: detects PANEL_MODEL_BWR296, busy, temperature 20)
+// epd_panel (default: detects PANEL_MODEL_BWR296, busy, temperature 200 = 20.0 C)
 extern uint8_t fake_detect_model;
-extern int8_t fake_panel_temperature; // returned by read_temperature and refresh
+extern int16_t fake_panel_temperature; // x10, returned by read_temperature and refresh
 extern uint8_t fake_panel_idle;       // returned by epd_panel_is_idle
 extern int fake_detect_calls;
 extern int fake_read_temperature_calls;

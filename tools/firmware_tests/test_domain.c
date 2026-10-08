@@ -1,13 +1,18 @@
-// Pure domain rules: panel table, refresh policy, slideshow, calendar, period, battery, device name.
+// Pure domain rules: panel table, refresh policy, slideshow, calendar, time zone, clock calibration,
+// firmware image, temperature, period, battery, device name.
 #include <string.h>
 #include "check.h"
 #include "domain/battery.h"
 #include "domain/calendar.h"
+#include "domain/clock_calibration.h"
 #include "domain/device_name.h"
+#include "domain/firmware_image.h"
 #include "domain/panel.h"
 #include "domain/period.h"
 #include "domain/refresh_policy.h"
 #include "domain/slideshow.h"
+#include "domain/temperature.h"
+#include "domain/time_zone.h"
 
 static void test_panel(void)
 {
@@ -161,54 +166,129 @@ static void test_slideshow(void)
     CHECK_EQ(show.index, 0);
 }
 
+static void check_date(uint32_t seconds, int year, int month, int day, int week, int hour, int min, int sec)
+{
+    struct date_time date = calendar_date(seconds);
+
+    CHECK_EQ(date.tm_year, year);
+    CHECK_EQ(date.tm_month, month);
+    CHECK_EQ(date.tm_day, day);
+    CHECK_EQ(date.tm_week, week);
+    CHECK_EQ(date.tm_hour, hour);
+    CHECK_EQ(date.tm_min, min);
+    CHECK_EQ(date.tm_sec, sec);
+}
+
 static void test_calendar(void)
 {
-    calendar_t calendar;
+    check_date(0, 1970, 1, 1, 4, 0, 0, 0);
+    check_date(1791467127u, 2026, 10, 8, 4, 13, 45, 27);
+    // Leap years: every 4th, except centuries not divisible by 400.
+    check_date(1709164799u, 2024, 2, 28, 3, 23, 59, 59);
+    check_date(1709164800u, 2024, 2, 29, 4, 0, 0, 0);
+    check_date(1677628800u, 2023, 3, 1, 3, 0, 0, 0);
+    check_date(951782400u, 2000, 2, 29, 2, 0, 0, 0);
+    check_date(4107456000u + 86399, 2100, 2, 28, 0, 23, 59, 59);
+    check_date(4107542400u, 2100, 3, 1, 1, 0, 0, 0);
+    // New year.
+    check_date(1704067199u, 2023, 12, 31, 0, 23, 59, 59);
+    check_date(1704067200u, 2024, 1, 1, 1, 0, 0, 0);
+    // Last day the 32-bit count reaches.
+    check_date(4294944000u, 2106, 2, 7, 0, 0, 0, 0);
+}
 
-    memset(&calendar, 0, sizeof(calendar));
-    calendar_set(&calendar, 1791467127u, 2026, 10, 8, 4); // 2026-10-08 13:45:27 UTC
-    CHECK_EQ(calendar.date.tm_hour, 13);
-    CHECK_EQ(calendar.date.tm_min, 45);
-    CHECK_EQ(calendar.date.tm_sec, 27);
-    CHECK_EQ(calendar.date.tm_day, 8);
+static void test_time_zone(void)
+{
+    // CEST until 2026-10-25 01:00 UTC, then CET, then CEST again from 2027-03-28 01:00 UTC.
+    time_zone_t zone = {120, 2, {{1792890000u, 60}, {1806195600u, 120}}};
+    time_zone_t west = {-300, 0, {{0, 0}}};
 
-    // Leap year: 28 Feb 2024 23:59:59 (Wednesday) -> 29 Feb, Thursday.
-    calendar_set(&calendar, 1709164799u, 2024, 2, 28, 3);
-    calendar_advance_second(&calendar);
-    CHECK_EQ(calendar.date.tm_year, 2024);
-    CHECK_EQ(calendar.date.tm_month, 2);
-    CHECK_EQ(calendar.date.tm_day, 29);
-    CHECK_EQ(calendar.date.tm_week, 4);
-    CHECK_EQ(calendar.date.tm_hour, 0);
-    CHECK_EQ(calendar.date.tm_min, 0);
-    CHECK_EQ(calendar.date.tm_sec, 0);
+    CHECK_EQ(time_zone_offset_seconds(&zone, 1791467127u), 7200);
+    CHECK_EQ(time_zone_offset_seconds(&zone, 1792890000u - 1), 7200);
+    CHECK_EQ(time_zone_offset_seconds(&zone, 1792890000u), 3600);
+    CHECK_EQ(time_zone_offset_seconds(&zone, 1806195600u), 7200);
+    CHECK_EQ(time_zone_offset_seconds(&west, 1791467127u), -18000);
+}
 
-    // Not a leap year: 28 Feb 2023 23:59:59 -> 1 Mar.
-    calendar_set(&calendar, 1677628799u, 2023, 2, 28, 2);
-    calendar_advance_second(&calendar);
-    CHECK_EQ(calendar.date.tm_month, 3);
-    CHECK_EQ(calendar.date.tm_day, 1);
-    CHECK_EQ(calendar.date.tm_week, 3);
+#define NOMINAL 16000000
+#define SIX_HOURS_MS 21600000u
 
-    // New year: 31 Dec 2023 23:59:59 (Sunday) -> 1 Jan 2024, Monday.
-    calendar_set(&calendar, 1704067199u, 2023, 12, 31, 0);
-    calendar_advance_second(&calendar);
-    CHECK_EQ(calendar.date.tm_year, 2024);
-    CHECK_EQ(calendar.date.tm_month, 1);
-    CHECK_EQ(calendar.date.tm_day, 1);
-    CHECK_EQ(calendar.date.tm_week, 1);
+static void test_clock_calibration(void)
+{
+    int16_t trim;
 
-    // Never set: the time of day runs but the date stays unset.
-    memset(&calendar, 0, sizeof(calendar));
-    {
-        uint32_t i;
-        for (i = 0; i < 86400 + 1; i++)
-            calendar_advance_second(&calendar);
-    }
-    CHECK_EQ(calendar.date.tm_year, 0);
-    CHECK_EQ(calendar.date.tm_month, 0);
-    CHECK_EQ(calendar.date.tm_day, 0);
-    CHECK_EQ(calendar.date.tm_sec, 1);
+    // 100 ppm fast with trim 5000: 16005000 * 1.0001 ticks per second.
+    trim = clock_calibrated_trim(5000, NOMINAL, SIX_HOURS_MS + 2160, SIX_HOURS_MS);
+    CHECK(trim >= 6599 && trim <= 6601);
+    // 200 ppm slow: 16005000 * 0.9998.
+    trim = clock_calibrated_trim(5000, NOMINAL, SIX_HOURS_MS - 4320, SIX_HOURS_MS);
+    CHECK(trim >= 1798 && trim <= 1800);
+    // Exact clock: unchanged.
+    CHECK_EQ(clock_calibrated_trim(5000, NOMINAL, SIX_HOURS_MS, SIX_HOURS_MS), 5000);
+    // 40 days, 50 ppm fast: 16005000 * 1.00005, within the precision the 32-bit math keeps.
+    trim = clock_calibrated_trim(5000, NOMINAL, 3456000000u + 172800, 3456000000u);
+    CHECK(trim >= 5797 && trim <= 5803);
+
+    // Too short to measure.
+    CHECK_EQ(clock_calibrated_trim(5000, NOMINAL, SIX_HOURS_MS - 1 + 2160, SIX_HOURS_MS - 1), 5000);
+    // Drift beyond 0.2 %, and a result beyond the limit, are bad measurements.
+    CHECK_EQ(clock_calibrated_trim(5000, NOMINAL, SIX_HOURS_MS + 43201, SIX_HOURS_MS), 5000);
+    CHECK_EQ(clock_calibrated_trim(5000, NOMINAL, SIX_HOURS_MS - 43201, SIX_HOURS_MS), 5000);
+    CHECK_EQ(clock_calibrated_trim(29000, NOMINAL, SIX_HOURS_MS + 4320, SIX_HOURS_MS), 29000);
+    trim = clock_calibrated_trim(-29000, NOMINAL, SIX_HOURS_MS - 4320, SIX_HOURS_MS);
+    CHECK_EQ(trim, -29000);
+}
+
+static void make_header(uint8_t *header, uint8_t flag, uint8_t dual_bank)
+{
+    static const uint8_t signature[4] = {0, 'N', 'L', 'T'};
+
+    memset(header, 0, FIRMWARE_HEADER_SIZE);
+    memcpy(&header[FIRMWARE_FLAG_OFFSET], signature, sizeof(signature));
+    header[FIRMWARE_FLAG_OFFSET] = flag;
+    if (dual_bank)
+        memcpy(&header[FIRMWARE_DUAL_BANK_OFFSET], "2BNK", 4);
+}
+
+static void test_firmware_image(void)
+{
+    uint8_t header[FIRMWARE_HEADER_SIZE];
+
+    // Running from bank 0 (its flag set): stage in 0x20000; else in bank 0.
+    CHECK_EQ(firmware_spare_bank(FIRMWARE_FLAG_BOOTABLE), 0x20000);
+    CHECK_EQ(firmware_spare_bank(0x00), 0);
+    CHECK_EQ(firmware_spare_bank(0xFF), 0);
+
+    make_header(header, FIRMWARE_FLAG_BOOTABLE, 1);
+    CHECK_EQ(firmware_install_method(header, 0x20000), FIRMWARE_INSTALL_SWITCH_BANK);
+    CHECK_EQ(firmware_install_method(header, 0), FIRMWARE_INSTALL_SWITCH_BANK);
+
+    // Older images cannot run from 0x20000: copied over bank 0, or started in place from bank 0.
+    make_header(header, FIRMWARE_FLAG_BOOTABLE, 0);
+    CHECK_EQ(firmware_install_method(header, 0x20000), FIRMWARE_INSTALL_COPY_TO_BANK_0);
+    CHECK_EQ(firmware_install_method(header, 0), FIRMWARE_INSTALL_SWITCH_BANK);
+
+    // Not bootable: no boot flag, or no signature.
+    make_header(header, 0xFF, 1);
+    CHECK_EQ(firmware_install_method(header, 0x20000), FIRMWARE_INSTALL_REJECT);
+    make_header(header, FIRMWARE_FLAG_BOOTABLE, 1);
+    header[11] = 0;
+    CHECK_EQ(firmware_install_method(header, 0), FIRMWARE_INSTALL_REJECT);
+}
+
+static void test_temperature(void)
+{
+    CHECK_EQ(temperature_x10_from_x256(21 * 256), 210);
+    CHECK_EQ(temperature_x10_from_x256(0x1580), 215); // 21.5
+    CHECK_EQ(temperature_x10_from_x256(0x15F0), 219); // 21.9375
+    CHECK_EQ(temperature_x10_from_x256(-384), -15);   // -1.5
+    CHECK_EQ(temperature_x10_from_x256(-16), -1);     // -0.0625
+
+    CHECK_EQ(temperature_whole_c(215), 22);
+    CHECK_EQ(temperature_whole_c(214), 21);
+    CHECK_EQ(temperature_whole_c(-215), -22);
+    CHECK_EQ(temperature_whole_c(-14), -1);
+    CHECK_EQ(temperature_whole_c(-4), 0);
 }
 
 static void test_period(void)
@@ -227,11 +307,17 @@ static void test_battery_and_name(void)
     static const uint8_t mac[6] = {0xAC, 0xF8, 0x3A, 0x11, 0x22, 0x33};
     char name[DEVICE_NAME_LENGTH + 1];
 
-    CHECK_EQ(battery_percent(2000), 0);
-    CHECK_EQ(battery_percent(2200), 0);
-    CHECK_EQ(battery_percent(2650), 50);
+    // CR2032 discharge curve: flat near the top, steep towards empty.
     CHECK_EQ(battery_percent(3100), 100);
-    CHECK_EQ(battery_percent(3300), 100);
+    CHECK_EQ(battery_percent(3000), 100);
+    CHECK_EQ(battery_percent(2950), 71);
+    CHECK_EQ(battery_percent(2900), 42);
+    CHECK_EQ(battery_percent(2820), 30);
+    CHECK_EQ(battery_percent(2740), 18);
+    CHECK_EQ(battery_percent(2440), 6);
+    CHECK_EQ(battery_percent(2270), 3);
+    CHECK_EQ(battery_percent(2100), 0);
+    CHECK_EQ(battery_percent(2000), 0);
 
     device_name_format(mac, name);
     CHECK(strcmp(name, "THX_3AF8AC") == 0);
@@ -244,6 +330,10 @@ int main(void)
     test_refresh_policy_fast();
     test_slideshow();
     test_calendar();
+    test_time_zone();
+    test_clock_calibration();
+    test_firmware_image();
+    test_temperature();
     test_period();
     test_battery_and_name();
     return check_report();

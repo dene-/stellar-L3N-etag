@@ -126,14 +126,14 @@ static const epd_ssd16xx_config_t bw_213_ice_cfg = {
     .partial_lut_size = sizeof(LUT_BW_213_ice_part),
 };
 
-_attribute_ram_code_ uint8_t EPD_BW_213_ice_read_temp(void)
+_attribute_ram_code_ int16_t EPD_BW_213_ice_read_temp(void)
 {
     return epd_ssd16xx_read_temp(&bw_213_ice_cfg);
 }
 
-_attribute_ram_code_ uint8_t EPD_BW_213_ice_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
+_attribute_ram_code_ int16_t EPD_BW_213_ice_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
-    uint8_t temp;
+    int16_t temp;
 
     epd_ssd16xx_init(&bw_213_ice_cfg);
 
@@ -144,9 +144,7 @@ _attribute_ram_code_ uint8_t EPD_BW_213_ice_Display(unsigned char *image, unsign
     EPD_CheckStatus_inverted(100);
 
     // Read temperature
-    EPD_WriteCmd(0x1B);
-    temp = EPD_SPI_read();
-    EPD_SPI_read();
+    temp = EPD_ReadTemperature(0x1B, 1);
     WaitMs(5);
 
     // Display update control

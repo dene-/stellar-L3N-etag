@@ -31,20 +31,18 @@ static const epd_uc8151c_config_t bw_213_cfg = {
     .lut_23_size = sizeof(lut_bw_213_23_part),
 };
 
-_attribute_ram_code_ uint8_t EPD_BW_213_read_temp(void)
+_attribute_ram_code_ int16_t EPD_BW_213_read_temp(void)
 {
     return epd_uc8151c_read_temp();
 }
 
-_attribute_ram_code_ uint8_t EPD_BW_213_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
+_attribute_ram_code_ int16_t EPD_BW_213_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
-    uint8_t temp;
+    int16_t temp;
 
     epd_uc8151c_booster_and_power_on();
 
-    EPD_WriteCmd(0x40);
-    temp = EPD_SPI_read();
-    EPD_SPI_read();
+    temp = EPD_ReadTemperature(0x40, 0);
 
     epd_uc8151c_panel_setting(&bw_213_cfg, full_or_partial);
 

@@ -4,32 +4,88 @@
 #include "stack/ble/ble.h"
 #include "ble/ble.h"
 #include "ble/ota_service.h"
+#include "domain/firmware_image.h"
 #include "sections.h"
 
-#define OTA_BANK_START 0x20000 // 131kb about
-#define OTA_MAX_SIZE 0x20000	 // 131kb about
+// Firmware update. The web flasher always addresses the image at OTA_STAGING_ADDRESS; the device
+// writes it to the spare bank (the one it did not boot from), so the running firmware stays intact
+// until the new one is complete and verified. The boot flag (byte 8) of the new image is held back
+// until then: an interrupted upload leaves a bank the boot ROM ignores.
+#define OTA_STAGING_ADDRESS 0x20000
+#define OTA_LAST_PAGE (OTA_STAGING_ADDRESS + FIRMWARE_BANK_SIZE - 0x100) // never written
 
 static RAM uint8_t ota_started = 0;
 static RAM uint8_t out_buffer[20] = {0};
 static RAM uint8_t ramd_to_flash_temp_buffer[0x100];
 static RAM uint16_t ram_position = 0;
 static RAM uint16_t crc_out = 0;
+static RAM uint32_t spare_bank;
+static RAM uint8_t image_flag = 0xFF; // byte 8 of the uploaded image, written last
 
-_attribute_ram_code_ static void apply_firmware_and_reboot(void);
+_attribute_ram_code_ static void copy_to_bank_0_and_reboot(void);
+_attribute_ram_code_ static void reboot(void);
 
-// 16-bit byte sum of the whole OTA bank (matches calculateCRC in the web flasher).
+static uint8_t staged(uint32_t address)
+{
+	return address >= OTA_STAGING_ADDRESS && address < OTA_LAST_PAGE;
+}
+
+static uint32_t to_spare_bank(uint32_t address)
+{
+	return spare_bank + (address - OTA_STAGING_ADDRESS);
+}
+
+// 16-bit byte sum of the whole image as sent (matches calculateCRC in the web flasher).
 _attribute_ram_code_ static uint16_t ota_bank_checksum(void)
 {
 	uint16_t sum = 0;
-	for (uint32_t i = 0; i < OTA_MAX_SIZE; i += 0x100)
+	for (uint32_t i = 0; i < FIRMWARE_BANK_SIZE; i += 0x100)
 	{
-		flash_read_page(OTA_BANK_START + i, sizeof(ramd_to_flash_temp_buffer), ramd_to_flash_temp_buffer);
+		flash_read_page(spare_bank + i, sizeof(ramd_to_flash_temp_buffer), ramd_to_flash_temp_buffer);
+		if (i == 0)
+			ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET] = image_flag;
 		for (int c = 0; c < 0x100; c++)
 		{
 			sum += ramd_to_flash_temp_buffer[c];
 		}
 	}
 	return sum;
+}
+
+// Makes the staged bank the one the boot ROM starts. Returns only if that failed.
+static void switch_bank_and_reboot(void)
+{
+	uint8_t flag = FIRMWARE_FLAG_BOOTABLE;
+	uint8_t cleared = 0;
+
+	flash_write_page(spare_bank + FIRMWARE_FLAG_OFFSET, 1, &flag);
+	flash_read_page(spare_bank + FIRMWARE_FLAG_OFFSET, 1, &flag);
+	if (flag != FIRMWARE_FLAG_BOOTABLE)
+		return;
+	// From here both banks are bootable until the old flag is cleared; either one starts fine.
+	flash_write_page((spare_bank ^ FIRMWARE_BANK_SIZE) + FIRMWARE_FLAG_OFFSET, 1, &cleared);
+	reboot();
+}
+
+static void install(void)
+{
+	uint8_t header[FIRMWARE_HEADER_SIZE];
+
+	flash_read_page(spare_bank, sizeof(header), header);
+	if (header[FIRMWARE_FLAG_OFFSET] != 0xFF) // a page program can only clear bits
+		return;
+	header[FIRMWARE_FLAG_OFFSET] = image_flag;
+	switch (firmware_install_method(header, spare_bank))
+	{
+	case FIRMWARE_INSTALL_SWITCH_BANK:
+		switch_bank_and_reboot();
+		break;
+	case FIRMWARE_INSTALL_COPY_TO_BANK_0:
+		copy_to_bank_0_and_reboot();
+		break;
+	default:
+		break;
+	}
 }
 
 _attribute_ram_code_ void ota_service_reset(void)
@@ -50,8 +106,12 @@ _attribute_ram_code_ int ota_service_write(void *p)
 
 	if (!ota_started)
 	{ // a short connection interval for the transfer
+		uint8_t bank0_flag;
+
 		ota_started = 1;
 		ble_set_connection_speed(6);
+		flash_read_page(FIRMWARE_FLAG_OFFSET, 1, &bank0_flag);
+		spare_bank = firmware_spare_bank(bank0_flag);
 	}
 	if (data_len >= 5)
 	{
@@ -60,109 +120,119 @@ _attribute_ram_code_ int ota_service_write(void *p)
 
 	switch (payload[0])
 	{
-	case 0:																																											 // just a reboot to test
-		analog_write(SYS_DEEP_ANA_REG, analog_read(SYS_DEEP_ANA_REG) & (~SYS_NEED_REINIT_EXT32K)); // clear
-		irq_disable();
-		REG_ADDR8(0x6f) = 0x20; // reboot
-		while (1)
-		{
-		}
+	case 0: // just a reboot to test
+		reboot();
 		break;
-	case 1: // erasing a sector of the flash, better be careful here ^^ could erase the running firmware
+	case 1: // erase the 4 KiB sector at a staging address
 		crc_out = 0;
-		if (address >= OTA_BANK_START && address < (OTA_BANK_START + OTA_MAX_SIZE - 0x100))
+		if (staged(address))
 		{
-			flash_erase_sector(address);
+			flash_erase_sector(to_spare_bank(address));
+			if (address - OTA_STAGING_ADDRESS < 0x1000)
+				image_flag = 0xFF;
 		}
 		memset(ramd_to_flash_temp_buffer, 0x00, sizeof(ramd_to_flash_temp_buffer));
 		ram_position = 0;
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, payload, data_len);
 		break;
-	case 2: // writing one bank (256byte) to flash at given sector
+	case 2: // write the page buffer to a staging address
 		crc_out = 0;
-		// within the bank and inside one flash page (a page program wraps at the page end)
-		if (address >= OTA_BANK_START && address < (OTA_BANK_START + OTA_MAX_SIZE - 0x100) &&
-			(address & 0xFF) + ram_position <= 0x100)
+		// inside one flash page (a page program wraps at the page end)
+		if (staged(address) && (address & 0xFF) + ram_position <= 0x100)
 		{
-			flash_write_page(address, ram_position, ramd_to_flash_temp_buffer);
+			uint32_t offset = address - OTA_STAGING_ADDRESS;
+
+			if (offset <= FIRMWARE_FLAG_OFFSET && offset + ram_position > FIRMWARE_FLAG_OFFSET)
+			{ // hold back the boot flag
+				image_flag = ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET - offset];
+				ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET - offset] = 0xFF;
+			}
+			flash_write_page(to_spare_bank(address), ram_position, ramd_to_flash_temp_buffer);
 		}
 		memset(ramd_to_flash_temp_buffer, 0x00, sizeof(ramd_to_flash_temp_buffer));
 		ram_position = 0;
-		// bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, payload, data_len);
 		break;
-	case 3: // write into the temporary buffer that will later be written to flash
+	case 3: // append to the page buffer
 		crc_out = 0;
 		if (ram_position + (data_len - 1) > 0x100)
 			return 0;
 		memcpy(&ramd_to_flash_temp_buffer[ram_position], &payload[1], (data_len - 1));
 		ram_position += (data_len - 1);
-		// bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, &ram_position, sizeof(ram_position));
 		break;
-	case 4: // read real flash to verify
+	case 4: // read flash to verify; staging addresses read the spare bank
 		crc_out = 0;
-		flash_read_page(address, sizeof(out_buffer), out_buffer);
+		flash_read_page(staged(address) ? to_spare_bank(address) : address, sizeof(out_buffer), out_buffer);
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, sizeof(out_buffer));
 		break;
-	case 5: // read back the staging buffer to verify
+	case 5: // read back the page buffer to verify
 		crc_out = 0;
 		if (address > sizeof(ramd_to_flash_temp_buffer) - sizeof(out_buffer))
 			return 0;
 		memcpy(out_buffer, &ramd_to_flash_temp_buffer[address], sizeof(out_buffer));
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, sizeof(out_buffer));
 		break;
-	case 6: // checksum of the uploaded bank; the web flasher still sends this before case 7 for old firmware
+	case 6: // checksum of the uploaded image; the web flasher still sends this before case 7 for old firmware
 		crc_out = ota_bank_checksum();
 		out_buffer[0] = 0x07;
 		out_buffer[1] = crc_out >> 8;
 		out_buffer[2] = crc_out;
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 3);
 		break;
-	case 7: // when upload is done flash the firmware with this cmd: 07 C001CEED <crc hi> <crc lo>
-		// Reply 07 00 <crc hi> <crc lo> on rejection. On success the device reflashes and reboots right away.
+	case 7: // start the uploaded firmware: 07 C001CEED <crc hi> <crc lo>
+		// On success the device reboots right away. Replies 07 00 <crc hi> <crc lo> on a checksum
+		// mismatch, 07 00 for a malformed command or an image that is not bootable.
+		out_buffer[0] = 0x07;
+		out_buffer[1] = 0x00;
 		if (address != 0xC001CEED || data_len < 7)
 		{
-			out_buffer[0] = 0x07;
-			out_buffer[1] = 0x00;
-			out_buffer[2] = 0x00;
-			out_buffer[3] = 0x00;
-			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 4);
+			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
 			break;
 		}
 		crc_out = ota_bank_checksum();
-		if (crc_out != 0 && crc_out == ((payload[5] << 8) | payload[6]))
+		if (crc_out == 0 || crc_out != ((payload[5] << 8) | payload[6]))
 		{
-			apply_firmware_and_reboot();
+			out_buffer[2] = crc_out >> 8;
+			out_buffer[3] = crc_out;
+			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 4);
+			break;
 		}
-		out_buffer[0] = 0x07;
-		out_buffer[1] = 0x00;
-		out_buffer[2] = crc_out >> 8;
-		out_buffer[3] = crc_out;
-		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 4);
+		install();
+		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
 		break;
 	}
 
 	return 0;
 }
 
-_attribute_ram_code_ static void apply_firmware_and_reboot(void)
+_attribute_ram_code_ static void reboot(void)
 {
 	irq_disable();
-	uint32_t address = 0;
-	while (address < OTA_MAX_SIZE)
-	{
-		flash_erase_sector(address);
-		address += 0x1000;
-	}
-	address = 0;
-	while (address < OTA_MAX_SIZE)
-	{
-		flash_read_page(OTA_BANK_START + address, 0x100, ramd_to_flash_temp_buffer);
-		flash_write_page(address, 0x100, ramd_to_flash_temp_buffer);
-		address += 0x100;
-	}
 	analog_write(SYS_DEEP_ANA_REG, analog_read(SYS_DEEP_ANA_REG) & (~SYS_NEED_REINIT_EXT32K));
 	REG_ADDR8(0x6f) = 0x20;
 	while (1)
 	{
 	}
+}
+
+// For images that cannot run from bank 0x20000, staged there while this firmware runs from bank 0.
+// Rewrites the running bank from RAM with interrupts off; a power loss meanwhile leaves no firmware.
+_attribute_ram_code_ static void copy_to_bank_0_and_reboot(void)
+{
+	irq_disable();
+	uint32_t address = 0;
+	while (address < FIRMWARE_BANK_SIZE)
+	{
+		flash_erase_sector(address);
+		address += 0x1000;
+	}
+	address = 0;
+	while (address < FIRMWARE_BANK_SIZE)
+	{
+		flash_read_page(spare_bank + address, 0x100, ramd_to_flash_temp_buffer);
+		if (address == 0)
+			ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET] = image_flag;
+		flash_write_page(address, 0x100, ramd_to_flash_temp_buffer);
+		address += 0x100;
+	}
+	reboot();
 }

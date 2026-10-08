@@ -8,7 +8,7 @@
 #include "application/status_led.h"
 #include "ble/ble.h"
 #include "ble/rxtx_commands.h"
-#include "infrastructure/wall_clock.h"
+#include "application/local_time.h"
 
 // RxTx characteristic: one command per write, opcode first. Replies go out as notifications.
 
@@ -36,12 +36,37 @@ static void show_pattern(const uint8_t *payload, uint16_t length)
 	display_show_pattern(payload[1]);
 }
 
-// DD <unix time:4> <year:2> <month> <day> <weekday>: set the clock (big endian).
+static uint32_t read_le32(const uint8_t *bytes)
+{
+	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+}
+
+static uint16_t read_le16(const uint8_t *bytes)
+{
+	return bytes[0] | (bytes[1] << 8);
+}
+
+// DD <local time:4> <year:2> <month> <day> <weekday> (big endian; what firmware before the time
+// zone support reads, ignored here), then little endian: <UTC seconds:4> <ms:2> <UTC offset
+// minutes:2> <count> and count changes of <UTC seconds:4> <offset minutes:2> (at most
+// TIME_ZONE_MAX_CHANGES, in order): set the clock and time zone.
+#define SET_TIME_ZONE_START 19
 static void set_time(const uint8_t *payload, uint16_t length)
 {
-	uint32_t unix_time = ((uint32_t)payload[1] << 24) | ((uint32_t)payload[2] << 16) | (payload[3] << 8) | payload[4];
+	time_zone_t zone;
+	uint8_t i;
 
-	wall_clock_set(unix_time, (payload[5] << 8) | payload[6], payload[7], payload[8], payload[9]);
+	zone.offset_minutes = (int16_t)read_le16(&payload[16]);
+	zone.change_count = payload[18];
+	if (zone.change_count > TIME_ZONE_MAX_CHANGES || length < SET_TIME_ZONE_START + 6 * zone.change_count ||
+		read_le16(&payload[14]) > 999)
+		return;
+	for (i = 0; i < zone.change_count; i++)
+	{
+		zone.changes[i].at = read_le32(&payload[SET_TIME_ZONE_START + 6 * i]);
+		zone.changes[i].offset_minutes = (int16_t)read_le16(&payload[SET_TIME_ZONE_START + 6 * i + 4]);
+	}
+	local_time_sync(read_le32(&payload[10]), read_le16(&payload[14]), &zone);
 }
 
 // DE: restore and store the default settings, and apply them.
@@ -79,7 +104,7 @@ static void query_or_redraw(const uint8_t *payload, uint16_t length)
 {
 	if (payload[1] == 0xAA)
 	{
-		int16_t temperature_x10 = (int16_t)display_last_temperature() * 10;
+		int16_t temperature_x10 = display_last_temperature();
 		uint8_t reply[2] = {temperature_x10 & 0xFF, (temperature_x10 >> 8) & 0xFF};
 
 		notify(reply, sizeof(reply));
@@ -166,7 +191,7 @@ static void fast_refresh(const uint8_t *payload, uint16_t length)
 
 static const rxtx_command_t commands[] = {
 	{0xB1, 2, show_pattern},
-	{0xDD, 10, set_time},
+	{0xDD, SET_TIME_ZONE_START, set_time},
 	{0xDE, 1, reset_settings},
 	{0xDF, 1, save_settings},
 	{0xE0, 2, select_panel},

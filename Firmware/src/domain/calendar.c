@@ -2,70 +2,26 @@
 
 #define SECONDS_PER_DAY 86400
 
-static uint8_t is_leap_year(int year)
+struct date_time calendar_date(uint32_t seconds)
 {
-    return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
-}
+    struct date_time date;
+    uint32_t days = seconds / SECONDS_PER_DAY;
+    uint32_t time_of_day = seconds % SECONDS_PER_DAY;
+    // Days to a civil date (Howard Hinnant's algorithm), counting eras of 400 years from 0000-03-01
+    // so the leap day ends each year.
+    uint32_t z = days + 719468;
+    uint32_t era = z / 146097;
+    uint32_t day_of_era = z - era * 146097;
+    uint32_t year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+    uint32_t day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    uint32_t month_from_march = (5 * day_of_year + 2) / 153;
 
-static uint8_t days_in_month(int month, int year)
-{
-    static const uint8_t days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
-    if (month == 2 && is_leap_year(year))
-        return 29;
-    if (month >= 1 && month <= 12)
-        return days[month - 1];
-    return 30;
-}
-
-static void update_time_of_day(calendar_t *calendar)
-{
-    calendar->date.tm_sec = calendar->unix_time % 60;
-    calendar->date.tm_min = (calendar->unix_time / 60) % 60;
-    calendar->date.tm_hour = (calendar->unix_time / 3600) % 24;
-}
-
-static void advance_day(struct date_time *date)
-{
-    if (date->tm_day + 1 > days_in_month(date->tm_month, date->tm_year))
-    {
-        date->tm_day = 1;
-        if (date->tm_month + 1 > 12)
-        {
-            date->tm_month = 1;
-            date->tm_year += 1;
-        }
-        else
-        {
-            date->tm_month += 1;
-        }
-    }
-    else
-    {
-        date->tm_day += 1;
-    }
-    date->tm_week = (date->tm_week + 1) % 7;
-}
-
-void calendar_set(calendar_t *calendar, uint32_t unix_time, uint16_t year, uint8_t month, uint8_t day, uint8_t weekday)
-{
-    calendar->unix_time = unix_time;
-    calendar->date.tm_year = year;
-    calendar->date.tm_month = month;
-    calendar->date.tm_day = day;
-    calendar->date.tm_week = weekday;
-    calendar->next_midnight = unix_time + (SECONDS_PER_DAY - unix_time % SECONDS_PER_DAY);
-    update_time_of_day(calendar);
-}
-
-void calendar_advance_second(calendar_t *calendar)
-{
-    calendar->unix_time++;
-    update_time_of_day(calendar);
-
-    if (calendar->next_midnight && calendar->unix_time >= calendar->next_midnight)
-    {
-        calendar->next_midnight += SECONDS_PER_DAY;
-        advance_day(&calendar->date);
-    }
+    date.tm_day = (int)(day_of_year - (153 * month_from_march + 2) / 5 + 1);
+    date.tm_month = (int)(month_from_march < 10 ? month_from_march + 3 : month_from_march - 9);
+    date.tm_year = (int)(year_of_era + era * 400 + (date.tm_month <= 2 ? 1 : 0));
+    date.tm_week = (int)((days + 4) % 7); // 1970-01-01 was a Thursday
+    date.tm_hour = (int)(time_of_day / 3600);
+    date.tm_min = (int)(time_of_day / 60 % 60);
+    date.tm_sec = (int)(time_of_day % 60);
+    return date;
 }

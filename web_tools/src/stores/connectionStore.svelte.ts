@@ -1,6 +1,7 @@
 // Declare globals that may be provided elsewhere
 import { logStore } from './logStore.svelte';
 import { intToHex, bytesToHex, hexToBytes } from '$lib/utils';
+import { buildSetTimeCommand } from '$lib/time-sync';
 import { FLASH_IMAGE_STORAGE_BYTES } from '$lib/photo-utils';
 
 type DisplaySource = 'default' | 'firmware' | 'manual' | 'name';
@@ -33,13 +34,14 @@ const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.mode
 // Assumed until the device reports its model (E2 AB) after connecting.
 const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(2)!;
 
-// OTA layout, mirrors OTA_BANK_START/OTA_MAX_SIZE in Firmware/src/ble/ota_service.c. The last 256 byte
-// page of the bank is never written by the device, so the largest image is one page shorter.
+// OTA layout, mirrors OTA_STAGING_ADDRESS/FIRMWARE_BANK_SIZE in Firmware/src/ble/ota_service.c. The
+// image is always addressed at 0x20000; current firmware stores it in whichever flash bank it is not
+// running from. The last 256 byte page is never written, so the largest image is one page shorter.
 export const OTA_BANK_ADDRESS = 0x20000;
 const OTA_BANK_SIZE = 0x20000;
 export const OTA_MAX_FIRMWARE_SIZE = OTA_BANK_SIZE - 0x100;
-// Rewriting 128 KiB takes a few seconds; the link loss is only noticed after the supervision
-// timeout the firmware requests (20 s), so allow comfortably more than both.
+// Firmware before v0.8.0 copies the image over itself (a few seconds) before rebooting; the link loss
+// is only noticed after the supervision timeout the firmware requests (20 s), so allow more than both.
 const OTA_REBOOT_TIMEOUT_MS = 45000;
 
 function resolveDisplayModel(model: number): DisplayModelInfo {
@@ -283,11 +285,10 @@ class BleConnectionStore {
 
 			const hex = bytesToHex(data);
 
-			// Firmware sends 2 bytes: int16 LE (temp * 10). If no decimals, it's in steps of 10.
+			// Firmware sends 2 bytes: int16 LE (temp * 10).
 			if (value.byteLength === 2) {
 				const t10 = value.getInt16(0, true);
-				const tempC = Math.round(t10 / 10);
-				logStore.addLog(`[From display][RXTX]: Temperature ${tempC}°C`);
+				logStore.addLog(`[From display][RXTX]: Temperature ${(t10 / 10).toFixed(1)}°C`);
 				return;
 			}
 
@@ -300,8 +301,27 @@ class BleConnectionStore {
 		// Allow BLE connection parameters and CCCD writes to stabilise
 		// before querying the device, otherwise the firmware may silently
 		// drop the notification response.
-		await new Promise((r) => setTimeout(r, 600));
+		const { promise: settled, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 600);
+		await settled;
 		await this.queryDisplayInfo();
+		await this.syncTime();
+	}
+
+	// Sets the tag's clock and time zone from this browser. Sent on every connect; the firmware
+	// also uses the interval between syncs to correct its clock drift.
+	async syncTime() {
+		if (!this.rxtxCharacteristic) {
+			logStore.addLog('Service unavailable. Is Bluetooth connected?');
+			return;
+		}
+		const command = buildSetTimeCommand(new Date());
+		logStore.addLog(`Setting the time: ${new Date().toLocaleString()}`);
+		try {
+			await this.rxtxCharacteristic.writeValueWithResponse(command);
+		} catch (e) {
+			await handleError(e);
+		}
 	}
 
 	async queryDisplayInfo() {
@@ -679,9 +699,10 @@ class BleConnectionStore {
 				logStore.addLog('No CRC reply from device, continuing; the device verifies it again.');
 			}
 
-			// Command 07 <magic> <crc>: the device rewrites its own flash with interrupts off and reboots,
-			// so success is never acknowledged: it shows up as the link dropping. Firmware may reject with
-			// 07 00 (bad command) or 07 00 <crc hi> <crc lo> (CRC mismatch); old firmware rejects silently.
+			// Command 07 <magic> <crc>: the device starts the new firmware (firmware before v0.8.0 first
+			// copies it over itself with interrupts off), so success is never acknowledged: it shows up as
+			// the link dropping. Firmware may reject with 07 00 (bad command, or not a bootable image) or
+			// 07 00 <crc hi> <crc lo> (CRC mismatch); old firmware rejects silently.
 			const rebooted = this.waitForDisconnect(OTA_REBOOT_TIMEOUT_MS);
 			logStore.addLog('Sending final flash command: 07C001CEED' + crcHex);
 			let rejected: Uint8Array | null = null;
@@ -700,17 +721,17 @@ class BleConnectionStore {
 				const detail =
 					rejected.length === 4
 						? `its CRC is 0x${((rejected[2] << 8) | rejected[3]).toString(16).padStart(4, '0')}, expected 0x${crcHex}`
-						: 'bad final command';
+						: 'bad final command, or not a bootable image';
 				logStore.addLog(`Device rejected the firmware (${detail}). Nothing was flashed.`);
 				return;
 			}
 
 			logStore.addLog(
-				'Waiting for the device to rewrite its flash and reboot; do not remove power...'
+				'Waiting for the device to reboot into the new firmware; do not remove power...'
 			);
 			if (await rebooted) {
 				logStore.addLog(
-					'Device dropped the connection: it is rewriting its flash and rebooting. Reconnect in ~10 s; the screen redraws on boot.'
+					'Device dropped the connection: it is rebooting into the new firmware. Reconnect in ~10 s; the screen redraws on boot.'
 				);
 			} else {
 				logStore.addLog(

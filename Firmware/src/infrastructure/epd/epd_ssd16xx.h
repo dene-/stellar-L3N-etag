@@ -37,7 +37,7 @@ typedef struct
 
 // Shared SSD16xx functions
 void epd_ssd16xx_init(const epd_ssd16xx_config_t *cfg);
-uint8_t epd_ssd16xx_read_temp(const epd_ssd16xx_config_t *cfg);
+int16_t epd_ssd16xx_read_temp(const epd_ssd16xx_config_t *cfg); // 1/256 degrees C
 void epd_ssd16xx_set_sleep(void);
 
 // Display helpers

@@ -39,9 +39,8 @@ uint8_t display_is_refreshing(void);
 #define DISPLAY_REFRESH_TIMEOUT 60
 uint8_t display_poll(void);
 
-// Panel temperature in degrees C, re-measured at most every DISPLAY_TEMPERATURE_MAX_AGE seconds and
-// never during a refresh (reading resets the controller).
-#define DISPLAY_TEMPERATURE_MAX_AGE 300
-int8_t display_read_temperature(void);
+// Panel temperature in tenths of a degree C, re-measured once it is max_age seconds old and never
+// during a refresh (reading resets the controller). Every refresh also measures it.
+int16_t display_read_temperature(uint32_t max_age);
 // Last measured value, without touching the panel.
-int8_t display_last_temperature(void);
+int16_t display_last_temperature(void);

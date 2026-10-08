@@ -180,9 +180,9 @@ static const epd_ssd16xx_config_t bwr_296_cfg = {
 };
 
 // Shared init + temp read sequence for Display functions
-static _attribute_ram_code_ uint8_t bwr_296_init_and_read_temp(void)
+static _attribute_ram_code_ int16_t bwr_296_init_and_read_temp(void)
 {
-    uint8_t temp;
+    int16_t temp;
 
     epd_ssd16xx_init(&bwr_296_cfg);
 
@@ -193,23 +193,21 @@ static _attribute_ram_code_ uint8_t bwr_296_init_and_read_temp(void)
     EPD_CheckStatus_inverted(100);
 
     // Read temperature
-    EPD_WriteCmd(0x1B);
-    temp = EPD_SPI_read();
-    EPD_SPI_read();
+    temp = EPD_ReadTemperature(0x1B, 1);
     WaitMs(5);
 
     return temp;
 }
 
-_attribute_ram_code_ uint8_t EPD_BWR_296_read_temp(void)
+_attribute_ram_code_ int16_t EPD_BWR_296_read_temp(void)
 {
     return epd_ssd16xx_read_temp(&bwr_296_cfg);
 }
 
 // Also drives the black/white 2.9" panel (PANEL_MODEL_BW296), which passes red = NULL.
-_attribute_ram_code_ uint8_t EPD_BWR_296_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
+_attribute_ram_code_ int16_t EPD_BWR_296_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
-    uint8_t temp = bwr_296_init_and_read_temp();
+    int16_t temp = bwr_296_init_and_read_temp();
 
     epd_ssd16xx_set_cursor(&bwr_296_cfg);
     EPD_LoadImage(image, size, 0x24);

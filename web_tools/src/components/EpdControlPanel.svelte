@@ -5,31 +5,6 @@
 
 	const hb = (n: number) => n.toString(16).padStart(2, '0');
 
-	function getLocalUnixTime(date: Date) {
-		return Math.floor((date.getTime() - date.getTimezoneOffset() * 60_000) / 1000);
-	}
-
-	function setTimeNow() {
-		const now = new Date();
-		const unix = getLocalUnixTime(now);
-		const y = now.getFullYear();
-		const m = now.getMonth() + 1;
-		const d = now.getDate();
-		const wd = now.getDay();
-		const hex =
-			'dd' +
-			hb((unix >>> 24) & 0xff) +
-			hb((unix >>> 16) & 0xff) +
-			hb((unix >>> 8) & 0xff) +
-			hb(unix & 0xff) +
-			hb((y >>> 8) & 0xff) +
-			hb(y & 0xff) +
-			hb(m) +
-			hb(d) +
-			hb(wd);
-		bleConnectionStore.sendRxTxCommand(hex);
-	}
-
 	function handleDisplayModelChange(event: Event) {
 		const select = event.currentTarget;
 		if (!(select instanceof HTMLSelectElement)) return;
@@ -51,7 +26,7 @@
 			<div class="flex gap-3 flex-wrap">
 				<button
 					class="btn btn-accent"
-					onclick={setTimeNow}
+					onclick={() => bleConnectionStore.syncTime()}
 					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 				>
 					Set time now

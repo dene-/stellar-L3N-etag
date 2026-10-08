@@ -160,7 +160,7 @@ static void test_poll_gives_up_on_stuck_panel(void)
     CHECK_EQ(display_is_refreshing(), 1);
 
     // The unix time jumping (phone sets the clock) must not end it.
-    fake_now = 5000000;
+    fake_utc = 5000000;
     CHECK_EQ(display_poll(), 1);
 
     fake_uptime = 1000 + DISPLAY_REFRESH_TIMEOUT;
@@ -188,28 +188,31 @@ static void test_write_is_bounded_by_plane_size(void)
     CHECK_EQ(display_write(DISPLAY_PLANE_RED, BW296_PLANE_BYTES, data, 1), 0);
 }
 
+#define MAX_AGE 300
+
 static void test_temperature_is_cached(void)
 {
     setup(PANEL_MODEL_BWR296);
     fake_uptime = 1000;
-    fake_panel_temperature = 21;
+    fake_panel_temperature = 213;
 
-    CHECK_EQ(display_read_temperature(), 21);
+    CHECK_EQ(display_read_temperature(MAX_AGE), 213);
     CHECK_EQ(fake_read_temperature_calls, 1);
 
-    fake_panel_temperature = 25;
-    fake_uptime = 1000 + DISPLAY_TEMPERATURE_MAX_AGE - 1;
-    CHECK_EQ(display_read_temperature(), 21);
+    fake_panel_temperature = 250;
+    fake_uptime = 1000 + MAX_AGE - 1;
+    CHECK_EQ(display_read_temperature(MAX_AGE), 213);
     CHECK_EQ(fake_read_temperature_calls, 1);
 
-    // The unix time does not age the cache.
-    fake_now = 1000000;
-    CHECK_EQ(display_read_temperature(), 21);
+    // The UTC time does not age the cache.
+    fake_utc = 1000000;
+    CHECK_EQ(display_read_temperature(MAX_AGE), 213);
     CHECK_EQ(fake_read_temperature_calls, 1);
 
-    fake_uptime = 1000 + DISPLAY_TEMPERATURE_MAX_AGE;
-    CHECK_EQ(display_read_temperature(), 25);
+    // A shorter maximum age (while connected) re-measures sooner.
+    CHECK_EQ(display_read_temperature(MAX_AGE - 1), 250);
     CHECK_EQ(fake_read_temperature_calls, 2);
+    CHECK_EQ(display_last_temperature(), 250);
 }
 
 // Reading the temperature resets the controller, so it must not happen while a refresh runs.
@@ -217,16 +220,16 @@ static void test_temperature_not_read_during_refresh(void)
 {
     setup(PANEL_MODEL_BWR296);
     fake_uptime = 1000;
-    fake_panel_temperature = 22;
+    fake_panel_temperature = 220;
     display_refresh(BW296_PLANE_BYTES, 1); // the refresh itself measures the temperature
 
-    fake_panel_temperature = 30;
-    fake_uptime = 1000 + DISPLAY_TEMPERATURE_MAX_AGE + 10;
-    CHECK_EQ(display_read_temperature(), 22);
+    fake_panel_temperature = 300;
+    fake_uptime = 1000 + MAX_AGE + 10;
+    CHECK_EQ(display_read_temperature(MAX_AGE), 220);
     CHECK_EQ(fake_read_temperature_calls, 0);
 
     finish_refresh();
-    CHECK_EQ(display_read_temperature(), 30);
+    CHECK_EQ(display_read_temperature(MAX_AGE), 300);
     CHECK_EQ(fake_read_temperature_calls, 1);
 }
 

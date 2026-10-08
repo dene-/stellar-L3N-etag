@@ -59,15 +59,15 @@ static const epd_uc8151c_config_t bwr_213_cfg = {
     .lut_23_size = sizeof(lut_bwr_213_23_part),
 };
 
-_attribute_ram_code_ uint8_t EPD_BWR_213_read_temp(void)
+_attribute_ram_code_ int16_t EPD_BWR_213_read_temp(void)
 {
     return epd_uc8151c_read_temp();
 }
 
 // Shared init for BWR213 display functions: power on, panel setting, temp read
-static _attribute_ram_code_ uint8_t bwr_213_init_display(uint8_t full_or_partial)
+static _attribute_ram_code_ int16_t bwr_213_init_display(uint8_t full_or_partial)
 {
-    uint8_t temp;
+    int16_t temp;
 
     EPD_WriteCmd(0x04); // power on
     WaitMs(1);
@@ -81,9 +81,7 @@ static _attribute_ram_code_ uint8_t bwr_213_init_display(uint8_t full_or_partial
     EPD_WriteCmd(0x04); // power on analog
     EPD_CheckStatus(100);
 
-    EPD_WriteCmd(0x40);
-    temp = EPD_SPI_read();
-    EPD_SPI_read();
+    temp = EPD_ReadTemperature(0x40, 0);
 
     if (!full_or_partial)
         epd_uc8151c_load_partial_luts(&bwr_213_cfg);
@@ -101,9 +99,9 @@ static _attribute_ram_code_ uint8_t bwr_213_init_display(uint8_t full_or_partial
 }
 
 // red may be NULL: a full refresh clears the red RAM, a partial one keeps it.
-_attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
+_attribute_ram_code_ int16_t EPD_BWR_213_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
-    uint8_t temp = bwr_213_init_display(full_or_partial);
+    int16_t temp = bwr_213_init_display(full_or_partial);
 
     EPD_LoadImage(image, size, 0x10);
     if (red != NULL)

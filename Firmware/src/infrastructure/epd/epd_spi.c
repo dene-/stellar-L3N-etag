@@ -76,6 +76,17 @@ _attribute_ram_code_ uint8_t EPD_SPI_read(void)
     return value;
 }
 
+_attribute_ram_code_ int16_t EPD_ReadTemperature(uint8_t command, uint8_t has_fraction)
+{
+    uint8_t whole;
+    uint8_t fraction;
+
+    EPD_WriteCmd(command);
+    whole = EPD_SPI_read();
+    fraction = EPD_SPI_read();
+    return (int16_t)(((uint16_t)whole << 8) | (has_fraction ? (fraction & 0xF0) : 0));
+}
+
 _attribute_ram_code_ void EPD_WriteCmd(unsigned char cmd)
 {
     gpio_write(EPD_CS, 0);

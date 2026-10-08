@@ -32,9 +32,9 @@ BWR_154_Len, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
 };
 
-_attribute_ram_code_ uint8_t EPD_BWR_154_read_temp(void)
+_attribute_ram_code_ int16_t EPD_BWR_154_read_temp(void)
 {
-    uint8_t epd_temperature = 0 ;
+    int16_t epd_temperature;
     
     // SW Reset
     EPD_WriteCmd(0x12);
@@ -80,9 +80,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_154_read_temp(void)
     EPD_CheckStatus_inverted(100);
 
     // Temperature sensor read from register
-    EPD_WriteCmd(0x1B);
-    epd_temperature = EPD_SPI_read();    
-    EPD_SPI_read();
+    epd_temperature = EPD_ReadTemperature(0x1B, 1);
 
     WaitMs(5);
     
@@ -93,9 +91,9 @@ _attribute_ram_code_ uint8_t EPD_BWR_154_read_temp(void)
     return epd_temperature;
 }
 
-_attribute_ram_code_ uint8_t EPD_BWR_154_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
+_attribute_ram_code_ int16_t EPD_BWR_154_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
-    uint8_t epd_temperature = 0 ;
+    int16_t epd_temperature;
     
     // SW Reset
     EPD_WriteCmd(0x12);
@@ -142,9 +140,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_154_Display(unsigned char *image, unsigned 
     EPD_CheckStatus_inverted(100);
 
     // Temperature sensor read from register
-    EPD_WriteCmd(0x1B);
-    epd_temperature = EPD_SPI_read();    
-    EPD_SPI_read();
+    epd_temperature = EPD_ReadTemperature(0x1B, 1);
 
     WaitMs(5);
 

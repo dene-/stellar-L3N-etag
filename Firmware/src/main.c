@@ -5,6 +5,7 @@
 #include "stack/ble/ble.h"
 #include "vendor/common/blt_common.h"
 #include "application/device_settings.h"
+#include "application/local_time.h"
 #include "application/display.h"
 #include "application/screen.h"
 #include "application/status_led.h"
@@ -35,6 +36,7 @@ _attribute_ram_code_ static void init_normal(void)
 	wall_clock_init();
 	ble_init();
 	device_settings_load();
+	local_time_init();
 	display_init(device_settings_panel_model());
 	image_store_init();
 	init_nfc();

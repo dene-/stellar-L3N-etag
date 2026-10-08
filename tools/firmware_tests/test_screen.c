@@ -9,9 +9,11 @@
 #define BWR296_PLANE_BYTES 4736
 #define BWR213_PLANE_BYTES 4000
 
+#define UTC_2026_10_08_1300 1791464400u
+
 static void set_minute(int minute)
 {
-    fake_date.tm_min = minute;
+    fake_utc = UTC_2026_10_08_1300 + minute * 60;
 }
 
 static void finish_refresh(void)
@@ -29,10 +31,6 @@ static void setup(void)
     device_settings_set_fast_refresh_enabled(0);
     display_select_model(PANEL_MODEL_BWR296);
     screen_set_scene(SCREEN_SCENE_DASHBOARD);
-    fake_date.tm_year = 2026;
-    fake_date.tm_month = 10;
-    fake_date.tm_day = 8;
-    fake_date.tm_hour = 13;
     set_minute(45);
 }
 

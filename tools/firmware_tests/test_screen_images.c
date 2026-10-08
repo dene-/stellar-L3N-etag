@@ -26,11 +26,7 @@ static void setup(uint8_t model)
     device_settings_set_fast_refresh_enabled(0);
     display_select_model(model);
     screen_set_scene(SCREEN_SCENE_DASHBOARD);
-    fake_date.tm_year = 2026;
-    fake_date.tm_month = 10;
-    fake_date.tm_day = 8;
-    fake_date.tm_hour = 13;
-    fake_date.tm_min = 45;
+    fake_utc = 1791467100u; // 2026-10-08 13:45 UTC
 }
 
 static void upload(uint8_t model, uint8_t count)
@@ -151,7 +147,7 @@ static void test_slideshow_runs_on_uptime(void)
     CHECK_EQ(fake_store_loaded_index, 0);
     finish_refresh();
 
-    fake_now = 1000000000;
+    fake_utc = 1000000000;
     screen_update(0, "THX_TEST");
     CHECK_EQ(fake_refresh_calls, 1);
 
@@ -223,7 +219,7 @@ static void test_hold_frame_stops_clock_scene(void)
     finish_refresh();
 
     screen_hold_frame();
-    fake_date.tm_min++;
+    fake_utc += 60;
     screen_update(0, "THX_TEST");
     CHECK_EQ(fake_refresh_calls, 1);
 

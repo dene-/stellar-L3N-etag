@@ -21,9 +21,7 @@ int main(void)
 
     fakes_reset();
     fake_detect_model = PANEL_MODEL_BWR296;
-    fake_date.tm_year = 2026;
-    fake_date.tm_month = 10;
-    fake_date.tm_day = 8;
+    fake_utc = 1791467100u; // 2026-10-08 13:45 UTC
     fake_uptime = 1000;
 
     // Unknown models are rejected before the store is touched.

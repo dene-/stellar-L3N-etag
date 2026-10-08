@@ -2,20 +2,21 @@
 #include "tl_common.h"
 #include "drivers.h"
 #include "infrastructure/wall_clock.h"
+#include "domain/clock_calibration.h"
 #include "sections.h"
 
-#define CLOCK_TRIM 5000 // system timer ticks added per second; higher runs the clock slower
+typedef char nominal_ticks_check[(WALL_CLOCK_NOMINAL_TICKS == CLOCK_16M_SYS_TIMER_CLK_1S) ? 1 : -1];
 
-static RAM uint32_t ticks_per_second = CLOCK_16M_SYS_TIMER_CLK_1S;
+static RAM uint32_t ticks_per_second;
 static RAM uint32_t last_second_tick;
 static RAM uint32_t uptime_seconds;
-static RAM calendar_t calendar;
+static RAM uint32_t utc_seconds;
 
 _attribute_ram_code_ void wall_clock_init(void)
 {
-    ticks_per_second += CLOCK_TRIM;
+    ticks_per_second = WALL_CLOCK_NOMINAL_TICKS + CLOCK_TRIM_DEFAULT;
     last_second_tick = clock_time();
-    calendar.unix_time = 0;
+    utc_seconds = 0;
 }
 
 _attribute_ram_code_ void wall_clock_tick(void)
@@ -25,23 +26,32 @@ _attribute_ram_code_ void wall_clock_tick(void)
     {
         last_second_tick += ticks_per_second;
         uptime_seconds++;
-        calendar_advance_second(&calendar);
+        if (utc_seconds)
+            utc_seconds++;
     }
 }
 
-_attribute_ram_code_ void wall_clock_set(uint32_t unix_time, uint16_t year, uint8_t month, uint8_t day, uint8_t weekday)
+_attribute_ram_code_ uint32_t wall_clock_utc(uint16_t *ms)
 {
-    calendar_set(&calendar, unix_time, year, month, day, weekday);
+    if (ms)
+    {
+        uint32_t elapsed_ms = (clock_time() - last_second_tick) / (ticks_per_second / 1000);
+
+        *ms = utc_seconds ? (elapsed_ms > 999 ? 999 : elapsed_ms) : 0; // a second not yet counted
+    }
+    return utc_seconds;
 }
 
-_attribute_ram_code_ uint32_t wall_clock_unix_time(void)
+_attribute_ram_code_ void wall_clock_set_utc(uint32_t seconds, uint16_t ms)
 {
-    return calendar.unix_time;
+    utc_seconds = seconds;
+    // Shifts the uptime seconds by the same fraction; they stay one per second.
+    last_second_tick = clock_time() - ms * (ticks_per_second / 1000);
 }
 
-_attribute_ram_code_ struct date_time wall_clock_date(void)
+_attribute_ram_code_ void wall_clock_set_trim(int16_t trim)
 {
-    return calendar.date;
+    ticks_per_second = WALL_CLOCK_NOMINAL_TICKS + trim;
 }
 
 _attribute_ram_code_ uint32_t wall_clock_uptime_seconds(void)

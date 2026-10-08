@@ -3,12 +3,14 @@
 #include "application/device_settings.h"
 #include "application/display.h"
 #include "application/telemetry.h"
+#include "application/local_time.h"
 #include "application/ports/wall_clock.h"
 #include "application/ports/image_storage.h"
 #include "domain/battery.h"
 #include "domain/epd_canvas.h"
 #include "domain/epd_scenes.h"
 #include "domain/slideshow.h"
+#include "domain/temperature.h"
 #include "sections.h"
 
 static RAM uint8_t scene = SCREEN_SCENE_DASHBOARD;
@@ -33,7 +35,7 @@ static void build_scene_data(epd_scene_data_t *data, struct date_time time, uint
     memset(data, 0, sizeof(*data));
     data->time = time;
     data->time_valid = (time.tm_year != 0);
-    data->temperature_c = telemetry_temperature_c();
+    data->temperature_c = (int8_t)temperature_whole_c(display_last_temperature()); // latest, often the last refresh's
     data->battery_mv = battery_mv;
     data->battery_percent = battery_percent(battery_mv);
     data->ble_connected = ble_connected;
@@ -43,7 +45,7 @@ static void build_scene_data(epd_scene_data_t *data, struct date_time time, uint
 // Redraws a clock scene once a minute (or when requested); the panel refreshes only if the frame changed.
 static void update_clock_scene(epd_scene_draw_fn draw, uint8_t ble_connected, const char *device_name)
 {
-    struct date_time time = wall_clock_date();
+    struct date_time time = local_time_date();
     const panel_t *panel;
     epd_scene_data_t data;
     epd_canvas_t canvas;

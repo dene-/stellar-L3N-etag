@@ -9,7 +9,7 @@
 
 static RAM period_t sample_period;
 static RAM uint16_t battery_mv;
-static RAM int8_t temperature_c;
+static RAM int16_t temperature_x10;
 
 void telemetry_update(uint8_t ble_connected)
 {
@@ -19,8 +19,9 @@ void telemetry_update(uint8_t ble_connected)
         return;
 
     battery_mv = battery_sensor_read_mv();
-    temperature_c = display_read_temperature(); // the panel controller has the only temperature sensor
-    telemetry_sink_publish(temperature_c * 10, battery_percent(battery_mv), battery_mv);
+    // The panel controller has the only temperature sensor; a refresh in between also measures it.
+    temperature_x10 = display_read_temperature(interval);
+    telemetry_sink_publish(temperature_x10, battery_percent(battery_mv), battery_mv);
 }
 
 uint16_t telemetry_battery_mv(void)
@@ -28,7 +29,7 @@ uint16_t telemetry_battery_mv(void)
     return battery_mv;
 }
 
-int8_t telemetry_temperature_c(void)
+int16_t telemetry_temperature_x10(void)
 {
-    return temperature_c;
+    return temperature_x10;
 }

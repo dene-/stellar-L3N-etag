@@ -25,7 +25,7 @@ typedef struct
 
 // Shared UC8151C functions
 void epd_uc8151c_booster_and_power_on(void);
-uint8_t epd_uc8151c_read_temp(void);
+int16_t epd_uc8151c_read_temp(void); // 1/256 degrees C, whole degrees only
 void epd_uc8151c_set_sleep(void);
 void epd_uc8151c_panel_setting(const epd_uc8151c_config_t *cfg, uint8_t full_or_partial);
 void epd_uc8151c_load_partial_luts(const epd_uc8151c_config_t *cfg);

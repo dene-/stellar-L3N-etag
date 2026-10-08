@@ -12,7 +12,7 @@ static RAM uint32_t refresh_started;
 static RAM refresh_policy_t refresh_policy;
 
 static RAM uint8_t temperature_valid;
-static RAM int8_t temperature;
+static RAM int16_t temperature; // x10
 static RAM uint32_t temperature_time;
 
 // The black plane survives deep-retention sleep so raw uploads can span connection events; the red
@@ -20,7 +20,7 @@ static RAM uint32_t temperature_time;
 static RAM uint8_t black_plane[PANEL_MAX_PLANE_BYTES];
 static uint8_t red_plane[PANEL_MAX_PLANE_BYTES];
 
-static void remember_temperature(int8_t value)
+static void remember_temperature(int16_t value)
 {
     temperature = value;
     temperature_valid = 1;
@@ -135,18 +135,17 @@ _attribute_ram_code_ uint8_t display_poll(void)
     return refreshing;
 }
 
-_attribute_ram_code_ int8_t display_read_temperature(void)
+_attribute_ram_code_ int16_t display_read_temperature(uint32_t max_age)
 {
     // Reading resets the controller, which would cut a running refresh short.
-    if (refreshing ||
-        (temperature_valid && wall_clock_uptime_seconds() - temperature_time < DISPLAY_TEMPERATURE_MAX_AGE))
+    if (refreshing || (temperature_valid && wall_clock_uptime_seconds() - temperature_time < max_age))
         return temperature;
 
     remember_temperature(epd_panel_read_temperature(resolved_model()));
     return temperature;
 }
 
-int8_t display_last_temperature(void)
+int16_t display_last_temperature(void)
 {
     return temperature;
 }

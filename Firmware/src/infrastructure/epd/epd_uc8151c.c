@@ -17,16 +17,14 @@ _attribute_ram_code_ void epd_uc8151c_booster_and_power_on(void)
   EPD_CheckStatus(100);
 }
 
-_attribute_ram_code_ uint8_t epd_uc8151c_read_temp(void)
+_attribute_ram_code_ int16_t epd_uc8151c_read_temp(void)
 {
-  uint8_t temp;
+  int16_t temp;
 
   EPD_WriteCmd(0x04); // Power on
   EPD_CheckStatus(100);
 
-  EPD_WriteCmd(0x40);
-  temp = EPD_SPI_read();
-  EPD_SPI_read(); // discard second byte
+  temp = EPD_ReadTemperature(0x40, 0);
 
   // Power off + deep sleep
   EPD_WriteCmd(0x02);

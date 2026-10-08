@@ -1,6 +1,7 @@
 #include "application/device_settings.h"
 #include "application/ports/settings_storage.h"
 #include "domain/panel.h"
+#include "domain/clock_calibration.h"
 #include "sections.h"
 
 static RAM device_settings_t settings;
@@ -11,13 +12,14 @@ static void apply_defaults(void)
     settings.panel_model = PANEL_MODEL_AUTO;
     settings.fast_refresh_enabled = 0;
     settings.led_flashing_enabled = 1;
+    settings.clock_trim = CLOCK_TRIM_DEFAULT;
 }
 
 void device_settings_load(void)
 {
+    apply_defaults();
     if (settings_storage_load(&settings))
         return;
-    apply_defaults();
     device_settings_save();
 }
 
@@ -69,5 +71,16 @@ uint8_t device_settings_led_flashing_enabled(void)
 void device_settings_set_led_flashing_enabled(uint8_t enabled)
 {
     settings.led_flashing_enabled = enabled ? 1 : 0;
+    settings_changed = 1;
+}
+
+int16_t device_settings_clock_trim(void)
+{
+    return settings.clock_trim;
+}
+
+void device_settings_set_clock_trim(int16_t trim)
+{
+    settings.clock_trim = trim;
     settings_changed = 1;
 }

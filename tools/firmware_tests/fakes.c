@@ -9,12 +9,13 @@
 #include "application/ports/wall_clock.h"
 #include "domain/panel.h"
 
-uint32_t fake_now;
+uint32_t fake_utc;
+uint16_t fake_utc_ms;
 uint32_t fake_uptime;
-struct date_time fake_date;
+int16_t fake_clock_trim;
 
 uint8_t fake_detect_model;
-int8_t fake_panel_temperature;
+int16_t fake_panel_temperature;
 uint8_t fake_panel_idle;
 int fake_detect_calls;
 int fake_read_temperature_calls;
@@ -60,12 +61,13 @@ int fake_light_animate_calls;
 
 void fakes_reset(void)
 {
-    fake_now = 0;
+    fake_utc = 0;
+    fake_utc_ms = 0;
     fake_uptime = 0;
-    memset(&fake_date, 0, sizeof(fake_date));
+    fake_clock_trim = 0;
 
     fake_detect_model = PANEL_MODEL_BWR296;
-    fake_panel_temperature = 20;
+    fake_panel_temperature = 200;
     fake_panel_idle = 0;
     fake_detect_calls = fake_read_temperature_calls = fake_refresh_calls = fake_sleep_calls = 0;
     fake_sleep_model = 0;
@@ -99,19 +101,27 @@ void fakes_reset(void)
 }
 
 // wall_clock
-uint32_t wall_clock_unix_time(void)
-{
-    return fake_now;
-}
-
-struct date_time wall_clock_date(void)
-{
-    return fake_date;
-}
-
 uint32_t wall_clock_uptime_seconds(void)
 {
     return fake_uptime;
+}
+
+uint32_t wall_clock_utc(uint16_t *ms)
+{
+    if (ms)
+        *ms = fake_utc_ms;
+    return fake_utc;
+}
+
+void wall_clock_set_utc(uint32_t seconds, uint16_t ms)
+{
+    fake_utc = seconds;
+    fake_utc_ms = ms;
+}
+
+void wall_clock_set_trim(int16_t trim)
+{
+    fake_clock_trim = trim;
 }
 
 // epd_panel
@@ -121,13 +131,13 @@ uint8_t epd_panel_detect(void)
     return fake_detect_model;
 }
 
-int8_t epd_panel_read_temperature(uint8_t model)
+int16_t epd_panel_read_temperature(uint8_t model)
 {
     fake_read_temperature_calls++;
     return fake_panel_temperature;
 }
 
-int8_t epd_panel_refresh(uint8_t model, uint8_t *black, uint8_t *red, uint16_t size, uint8_t full)
+int16_t epd_panel_refresh(uint8_t model, uint8_t *black, uint8_t *red, uint16_t size, uint8_t full)
 {
     fake_refresh_calls++;
     fake_refresh_model = model;

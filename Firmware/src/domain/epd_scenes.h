@@ -9,7 +9,7 @@ typedef struct
 {
     struct date_time time;
     uint8_t time_valid; // 0 until the time has been set over BLE
-    int8_t temperature_c;
+    int8_t temperature_c; // whole degrees
     uint16_t battery_mv;
     uint8_t battery_percent;
     uint8_t ble_connected;
