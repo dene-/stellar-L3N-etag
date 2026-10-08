@@ -705,15 +705,14 @@ class BleConnectionStore {
 		await ota.writeValueWithResponse(commitPkt);
 	}
 
-	// Firmware v0.11.0 on: command 08 <bank offset:3> <data> written without response, so several go
-	// out per connection event and the tag erases each sector when the stream reaches it. Every 16th
-	// write waits for its response, which paces the stream to the tag's flash. 176 data bytes keep
-	// each write within the smallest ATT MTU the browser may negotiate (185).
-	private async streamFirmware(ota: BluetoothRemoteGATTCharacteristic, data: Uint8Array) {
-		const chunkSize = 176;
-		const count = Math.ceil(data.length / chunkSize);
-		for (let index = 0; index < count; index++) {
-			const offset = index * chunkSize;
+	// Firmware v0.11.0 on: command 08 <bank offset:3> <data> puts data at a bank offset in one write,
+	// and the tag erases each sector when the upload reaches it, so there is no erase pass and no
+	// separate commit per page. Every write waits for its response: written without response, the
+	// writes piled up while the tag erased a sector and it stopped answering after about 10 KiB.
+	// 240-byte writes are what the page-by-page upload has always sent.
+	private async writeFirmwareAtOffsets(ota: BluetoothRemoteGATTCharacteristic, data: Uint8Array) {
+		const chunkSize = 236;
+		for (let offset = 0; offset < data.length; offset += chunkSize) {
 			const chunk = data.subarray(offset, offset + chunkSize);
 			const packet = new Uint8Array(4 + chunk.length);
 			packet[0] = 0x08;
@@ -721,9 +720,8 @@ class BleConnectionStore {
 			packet[2] = (offset >> 8) & 0xff;
 			packet[3] = offset & 0xff;
 			packet.set(chunk, 4);
-			if (index % 16 === 15 || index === count - 1) await ota.writeValueWithResponse(packet);
-			else await ota.writeValueWithoutResponse(packet);
-			this.firmwareUploadProgress = ((index + 1) / count) * 100;
+			await ota.writeValueWithResponse(packet);
+			this.firmwareUploadProgress = ((offset + chunk.length) / data.length) * 100;
 		}
 	}
 
@@ -808,9 +806,10 @@ class BleConnectionStore {
 			// Replies (CRC result, rejection) come back as notifications on this characteristic.
 			await ota.startNotifications();
 
+			// Firmware v0.11.0 on marks command 08 support by also accepting writes without response.
 			if (ota.properties.writeWithoutResponse) {
-				logStore.addLog('Streaming firmware...');
-				await this.streamFirmware(ota, data);
+				logStore.addLog('Writing firmware...');
+				await this.writeFirmwareAtOffsets(ota, data);
 			} else {
 				await this.eraseFwArea(ota);
 				logStore.addLog('Flashing firmware page by page (firmware before v0.11.0)...');

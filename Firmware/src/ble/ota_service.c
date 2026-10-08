@@ -13,9 +13,11 @@
 // until then: an interrupted upload leaves a bank the boot ROM ignores.
 //
 // Two ways to upload: per 256-byte page (erase 01, append 03, write 02), which every firmware
-// understands, or streamed with command 08 (offset and data in one write, sectors erased as the
-// upload reaches them), which the web flasher uses when the characteristic accepts writes without
-// response (firmware from v0.11.0). Both end with the checksum (06) and the start command (07).
+// understands, or with command 08 (offset and data in one write, sectors erased as the upload
+// reaches them), which the web flasher uses when the characteristic also accepts writes without
+// response (firmware from v0.11.0). It still writes with response: streamed without response, the
+// writes overran the tag and it stopped answering a few sectors into the upload. Both end with the
+// checksum (06) and the start command (07).
 #define OTA_STAGING_ADDRESS 0x20000
 #define OTA_LAST_PAGE (OTA_STAGING_ADDRESS + FIRMWARE_BANK_SIZE - 0x100) // never written
 #define OTA_SECTOR_SIZE 0x1000

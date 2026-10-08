@@ -5,9 +5,7 @@ Bluetooth chip. The tag shows a clock dashboard, an uploaded image or a slidesho
 from a browser over Bluetooth. Based on [ATC_TLSR_Paper](https://github.com/atc1441/ATC_TLSR_Paper)
 by atc1441.
 
-![Dashboard on a 2.9" tag](images/scene-dashboard-296.png)
-
-![Clock on a 2.9" tag](images/scene-clock-296.png) ![Dashboard on a 2.13" tag](images/scene-dashboard-213.png)
+<img src="images/scene-dashboard-296.png" width="25%" alt="Dashboard on a 2.9&quot; tag"> <img src="images/scene-clock-296.png" width="25%" alt="Clock on a 2.9&quot; tag"> <img src="images/scene-dashboard-213.png" width="25%" alt="Dashboard on a 2.13&quot; tag">
 
 The screens above are rendered by `tools/scene_preview` from the same code that runs on the tag.
 
@@ -27,9 +25,11 @@ Open <https://dene-.github.io/stellar-L3N-etag/> in Chrome or Edge (Web Bluetoot
 flasher also needs Web Serial). To run it locally, with Node 22.17 or later:
 `cd web_tools && yarn install && yarn dev`.
 
-It has three pages:
+Connecting opens the browser's Bluetooth picker, which lists only tags (names starting with
+`THX`). The tool has three pages:
 
-- **Device**: what the tag shows, its temperature and battery, the display model, how often and
+- **Device**: what the tag shows (all four screens as cards; the one on the tag is marked "On
+  screen"), its name, firmware version, temperature and battery, the display model, how often and
   when the clock refreshes, fast refresh and the status light. Connecting also sets the tag's clock
   and time zone.
 - **Images**: converts pictures for the panel with a choice of dithering, and sends one picture or
@@ -39,11 +39,12 @@ It has three pages:
 
 The log of everything sent to and received from the tag opens from the icon at the top right.
 
-![Start page](images/web-home.png)
+<img src="images/web-home.png" width="25%" alt="Start page"> <img src="images/web-device.png" width="25%" alt="Device page"> <img src="images/web-images.png" width="25%" alt="Images page">
 
-![Device page](images/web-device.png)
-
-![Images page](images/web-images.png)
+Firmware up to v0.11.0 reports its name as just `THX` once connected (the GAP Device Name), and
+browsers remember it, so such a tag shows up as `THX` instead of `THX_` plus its MAC address. From
+v0.12.0 on it reports the full name; the browser may keep showing `THX` until it reads the name
+again.
 
 ## First install (UART)
 
@@ -76,10 +77,11 @@ and only started once its checksum matches, so a failed or interrupted upload le
 firmware in place. Firmware before v0.8.0 copies the update over itself instead: the first update
 from such a version still must not lose power while it runs.
 
-Firmware from v0.11.0 on receives the update as a stream: the web tool sends the image in writes
-that need no acknowledgement, several per Bluetooth connection event, and the tag erases each flash
-sector as the stream reaches it. Older firmware takes it one 256-byte page at a time, waiting for
-each step; the update that installs v0.11.0 still runs that way.
+Firmware from v0.11.0 on takes the image with its offset in each write (command 08) and erases each
+flash sector when the upload reaches it, so there is no erase pass and no separate commit per page.
+Older firmware takes it one 256-byte page at a time, three writes per page; the update that
+installs v0.11.0 still runs that way. Every write waits for the tag's response: the web tool used to
+send command 08 without waiting, and the tag stopped answering about 10 KiB into the upload.
 
 ## Clock
 

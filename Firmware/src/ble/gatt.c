@@ -139,7 +139,8 @@ static const u8 my_tempCharVal[5] = {
 	U16_LO(0x2A1F), U16_HI(0x2A1F)
 };
 
-//// OTA attribute values; writes without response stream the image (command 08, see ota_service.c)
+//// OTA attribute values. WRITE_WITHOUT_RSP tells the web flasher this firmware has command 08 (see
+//// ota_service.c); it writes with response anyway, as the tag hangs on a stream without response.
 static const u8 my_OtaCharVal[5] = {
 	CHAR_PROP_NOTIFY | CHAR_PROP_WRITE | CHAR_PROP_WRITE_WITHOUT_RSP,
 	U16_LO(OTA_CMD_OUT_DP_H), U16_HI(OTA_CMD_OUT_DP_H),
