@@ -1,33 +1,35 @@
-# GFX bitmap font generator
+# Bitmap fonts
 
-`gen_gfx_fonts.py` renders DejaVu Sans Bold glyphs monochrome (no anti-aliasing)
-with Pillow and writes Adafruit-GFX style font headers into `Firmware/src/fonts/`.
-The headers are consumed by `epd_canvas_text` in `Firmware/src/epd_canvas.c`.
+`gen_gfx_fonts.py` converts glyphs of the [Spleen](https://github.com/fcambus/spleen) bitmap
+font (BDF) into Adafruit-GFX style headers in `Firmware/src/fonts/`, consumed by
+`epd_canvas_text` in `Firmware/src/epd_canvas.c`. Spleen is drawn for the pixel grid, and the
+conversion is exact: glyphs are only cropped to their ink, so the panel shows the designed pixels.
 
-Each header includes `../epd_font.h` for the `GFXglyph` / `GFXfont` types.
+| Header | Source | Characters | Used for |
+| --- | --- | --- | --- |
+| `font_clock_64.h` | spleen-32x64 | `-./0-9:` | time, large panels |
+| `font_clock_48.h` | spleen-12x24, scaled x2 | `-./0-9:` | time, mid-size boxes |
+| `font_clock_32.h` | spleen-16x32 | `-./0-9:` | time, smallest boxes |
+| `font_text_24.h` | spleen-12x24 | ASCII + degree | side panel values |
+| `font_text_16.h` | spleen-8x16 | ASCII + degree | date band, compact values |
+| `font_text_12.h` | spleen-6x12 | ASCII + degree | status line, header, labels |
 
 ## Regenerate
 
-From the repo root (works from any directory):
-
 ```sh
-python3 tools/fonts/gen_gfx_fonts.py                       # uses matplotlib's bundled DejaVu fonts
-python3 tools/fonts/gen_gfx_fonts.py --font-dir DIR        # DIR contains DejaVuSans-Bold.ttf
-python3 tools/fonts/gen_gfx_fonts.py --check               # also save /tmp/gfx_font_check/*.png
+python3 tools/fonts/gen_gfx_fonts.py            # downloads the pinned Spleen release (sha256-checked)
+python3 tools/fonts/gen_gfx_fonts.py --bdf-dir DIR
+python3 tools/fonts/gen_gfx_fonts.py --check    # also writes preview PNGs to <tmp>/gfx_font_check/
 ```
 
-Requires Python 3 with Pillow. matplotlib is optional and only used to locate the fonts.
-
-Font sizes and character ranges are defined in `FONT_SPECS` in the script.
+Sizes and character ranges are defined in `FONT_SPECS`. `--check` needs Pillow.
 
 ## Notes
 
-- Character slot 0x7F is rendered from the degree sign U+00B0 (the firmware uses 0x7F as the degree glyph), not DEL.
-- Glyph bitmaps are row-major, MSB-first, packed continuously across rows; each glyph starts on a fresh byte.
-- `yAdvance` is `ascent + descent` from the font metrics.
+- Slot 0x7F holds the degree sign (U+00B0); the firmware writes it as `EPD_DEGREE`.
+- The colon of the clock fonts gets a narrow advance so `20:22` has no wide gaps.
+- Scaled fonts duplicate pixels by an integer factor; nothing is resampled.
 
 ## License
 
-DejaVu fonts are derived from Bitstream Vera. The license text is in
-`LICENSE_DEJAVU` (copied from matplotlib's `mpl-data/fonts/ttf/LICENSE_DEJAVU`).
-It permits embedding and derivative works, including generated bitmap fonts.
+Spleen is BSD-2-Clause, see `LICENSE_SPLEEN`.

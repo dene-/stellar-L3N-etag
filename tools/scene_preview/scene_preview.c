@@ -33,10 +33,12 @@ static const panel_t panels[] = {
     {"bw212x104", 212, 104, 0},
 };
 
+// Covers the widest strings each layout must hold: 3-digit negative temperature, "Wednesday",
+// two-digit day, full battery with Bluetooth, and the unset-time placeholder.
 static const state_t states[] = {
     {"normal", {{0, 22, 20, 8, 10, 2026, 4}, 1, 23, 2980, 89, 1, "THX_3AF8AC"}},
     {"unset_lowbat", {{0, 7, 0, 0, 0, 0, 0}, 0, -5, 2410, 12, 0, "THX_3AF8AC"}},
-    {"wide_date", {{0, 59, 23, 30, 9, 2026, 3}, 1, 31, 3010, 100, 0, "THX_3AF8AC"}},
+    {"widest", {{0, 59, 23, 30, 9, 2026, 3}, 1, -15, 3010, 100, 1, "THX_3AF8AC"}},
 };
 
 static const scene_t scenes[] = {
@@ -80,6 +82,8 @@ int main(int argc, char **argv)
     const char *out_dir = (argc > 1) ? argv[1] : ".";
     size_t p, s, sc;
 
+    int status = 0;
+
     for (p = 0; p < sizeof(panels) / sizeof(panels[0]); p++)
         for (s = 0; s < sizeof(states) / sizeof(states[0]); s++)
             for (sc = 0; sc < sizeof(scenes) / sizeof(scenes[0]); sc++)
@@ -95,7 +99,12 @@ int main(int argc, char **argv)
                     perror(path);
                     return 1;
                 }
+                if (c.clipped)
+                {
+                    fprintf(stderr, "%s: %u pixels clipped or overflowing their box\n", path, (unsigned)c.clipped);
+                    status = 2;
+                }
                 printf("%s\n", path);
             }
-    return 0;
+    return status;
 }

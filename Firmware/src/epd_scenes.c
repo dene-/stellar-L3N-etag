@@ -1,17 +1,21 @@
 #include "epd_scenes.h"
 
-#include "fonts/font_bold_12.h"
-#include "fonts/font_bold_16.h"
-#include "fonts/font_bold_22.h"
-#include "fonts/font_digits_44.h"
-#include "fonts/font_digits_64.h"
-#include "fonts/font_digits_80.h"
+// Spleen bitmap fonts (tools/fonts/gen_gfx_fonts.py), drawn 1:1 so every glyph keeps its designed pixels.
+#include "fonts/font_clock_32.h"
+#include "fonts/font_clock_48.h"
+#include "fonts/font_clock_64.h"
+#include "fonts/font_text_12.h"
+#include "fonts/font_text_16.h"
+#include "fonts/font_text_24.h"
 
 #define MARGIN 4
 #define LOW_BATTERY_PERCENT 15
 
-static const GFXfont *const time_fonts[] = {&font_digits_80, &font_digits_64, &font_digits_44};
-static const GFXfont *const value_fonts[] = {&font_bold_22, &font_bold_16};
+#define FONT_SMALL (&font_text_12) // status line, header, labels
+#define FONT_BODY (&font_text_16)  // date band, compact values
+
+static const GFXfont *const time_fonts[] = {&font_clock_64, &font_clock_48, &font_clock_32};
+static const GFXfont *const value_fonts[] = {&font_text_24, &font_text_16};
 
 static const char *const weekday_names[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 static const char *const month_names[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
@@ -96,8 +100,8 @@ static int16_t draw_status(epd_canvas_t *c, const epd_scene_data_t *d, int16_t r
     int16_t x;
 
     put_str(put_uint(text, d->battery_percent, 1), "%");
-    x = epd_canvas_text_aligned(c, &font_bold_12, right - 40, right, cap_baseline(&font_bold_12, top, h), EPD_ALIGN_RIGHT, text, battery_ink);
-    x += epd_text_box(&font_bold_12, text).left;
+    x = epd_canvas_text_aligned(c, FONT_SMALL, right - 40, right, cap_baseline(FONT_SMALL, top, h), EPD_ALIGN_RIGHT, text, battery_ink);
+    x += epd_text_box(FONT_SMALL, text).left;
 
     x -= 4 + EPD_BATTERY_ICON_W;
     epd_canvas_battery(c, x, top + (h - EPD_BATTERY_ICON_H) / 2, d->battery_percent, battery_ink);
@@ -113,7 +117,7 @@ static int16_t draw_status(epd_canvas_t *c, const epd_scene_data_t *d, int16_t r
 // Red band along the bottom: weekday on the left, date on the right.
 static void draw_date_band(epd_canvas_t *c, const epd_scene_data_t *d, int16_t top, int16_t h)
 {
-    const GFXfont *font = &font_bold_16;
+    const GFXfont *font = FONT_BODY;
     int16_t baseline = cap_baseline(font, top, h);
     char weekday[12];
     char date[16];
@@ -155,7 +159,7 @@ void epd_scene_draw_clock(epd_canvas_t *c, const epd_scene_data_t *d)
     char text[8];
 
     format_temperature(d, text);
-    epd_canvas_text_aligned(c, &font_bold_12, MARGIN, c->width, cap_baseline(&font_bold_12, 0, status_h), EPD_ALIGN_LEFT, text, EPD_INK_BLACK);
+    epd_canvas_text_aligned(c, FONT_SMALL, MARGIN, c->width, cap_baseline(FONT_SMALL, 0, status_h), EPD_ALIGN_LEFT, text, EPD_INK_BLACK);
     draw_status(c, d, c->width - MARGIN, 0, status_h);
 
     draw_time(c, d, 0, status_h, c->width, band_top - status_h);
@@ -169,12 +173,12 @@ static void draw_info_cell(epd_canvas_t *c, int16_t left, int16_t top, int16_t w
     {
         const GFXfont *font = epd_text_fit_font(value_fonts, sizeof(value_fonts) / sizeof(value_fonts[0]), value, w, h);
 
-        epd_canvas_text_aligned(c, &font_bold_12, left, left + w, top + 4 - epd_text_box(&font_bold_12, "H").top, EPD_ALIGN_LEFT, label, EPD_INK_BLACK);
+        epd_canvas_text_aligned(c, FONT_SMALL, left, left + w, top + 4 - epd_text_box(FONT_SMALL, "H").top, EPD_ALIGN_LEFT, label, EPD_INK_BLACK);
         epd_canvas_text_aligned(c, font, left, left + w, top + h - 5, EPD_ALIGN_LEFT, value, EPD_INK_BLACK);
     }
     else
     {
-        epd_canvas_text_aligned(c, &font_bold_16, left, left + w, cap_baseline(&font_bold_16, top, h), EPD_ALIGN_LEFT, value, EPD_INK_BLACK);
+        epd_canvas_text_aligned(c, FONT_BODY, left, left + w, cap_baseline(FONT_BODY, top, h), EPD_ALIGN_LEFT, value, EPD_INK_BLACK);
     }
 }
 
@@ -197,7 +201,7 @@ void epd_scene_draw_dashboard(epd_canvas_t *c, const epd_scene_data_t *d)
 
     // Header: tag name and connection/battery status, ruled off from the body.
     status_left = draw_status(c, d, c->width - MARGIN, 0, header_h);
-    epd_canvas_text_aligned(c, &font_bold_12, MARGIN, status_left - MARGIN, cap_baseline(&font_bold_12, 0, header_h), EPD_ALIGN_LEFT,
+    epd_canvas_text_aligned(c, FONT_SMALL, MARGIN, status_left - MARGIN, cap_baseline(FONT_SMALL, 0, header_h), EPD_ALIGN_LEFT,
                             d->device_name, EPD_INK_BLACK);
     epd_canvas_fill(c, 0, header_h, c->width, rule_h, EPD_INK_BLACK);
 

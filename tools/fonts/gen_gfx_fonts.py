@@ -1,36 +1,42 @@
 #!/usr/bin/env python3
-"""Generate Adafruit-GFX style bitmap font headers for the tag's scene renderer (epd_canvas.c).
+"""Generate the tag's bitmap font headers (Firmware/src/fonts/) from the Spleen bitmap fonts.
 
-Renders DejaVu Sans Bold glyphs monochrome (no anti-aliasing) with Pillow and
-writes one C header per entry in FONT_SPECS into Firmware/src/fonts/.
+Spleen (https://github.com/fcambus/spleen) is a pixel-designed bitmap font; its BDF glyphs are
+converted bit for bit (only cropped to their ink), so the panel shows exactly the designed pixels.
+A spec may upscale a font by an integer factor; pixels are duplicated, never resampled.
 
 Usage (from any working directory):
 
-    python3 tools/fonts/gen_gfx_fonts.py [--font-dir DIR] [--out-dir DIR] [--check]
+    python3 tools/fonts/gen_gfx_fonts.py [--bdf-dir DIR] [--out-dir DIR] [--check]
 
---check additionally decodes each font from the in-memory glyph tables, renders
-a sample string the way epd_canvas_text does and saves a 3x PNG to
-/tmp/gfx_font_check/ for visual inspection.
+Without --bdf-dir the pinned Spleen release is downloaded (sha256-verified) and cached.
+--check also writes 3x preview PNGs of every font to <tmp>/gfx_font_check/ (needs Pillow).
 """
 
 import argparse
-import os
+import hashlib
+import io
+import ssl
 import sys
+import tarfile
+import tempfile
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUT_DIR = REPO_ROOT / "Firmware" / "src" / "fonts"
-CHECK_DIR = Path("/tmp/gfx_font_check")
+CHECK_DIR = Path(tempfile.gettempdir()) / "gfx_font_check"
 
-DEGREE_SLOT = 0x7F
-DEGREE_SIGN = "\u00b0"
-CHECK_TEXT_DIGITS = "-0123456789:"
-CHECK_TEXT_TEXT = "Thu 08 Oct 23\x7fC 2.98V 89%"
+SPLEEN_VERSION = "2.1.0"
+SPLEEN_URL = f"https://github.com/fcambus/spleen/releases/download/{SPLEEN_VERSION}/spleen-{SPLEEN_VERSION}.tar.gz"
+SPLEEN_SHA256 = "8b47c56f1a6eb858fbcf9e34530557404b02fbb3455e38e64fb84473fd0c372f"
+CACHE_DIR = Path(tempfile.gettempdir()) / f"spleen-{SPLEEN_VERSION}"
 
-TTF_SOURCE_NAMES = {"DejaVuSans-Bold.ttf": "DejaVu Sans Bold"}
+DEGREE_SLOT = 0x7F  # the firmware writes the degree sign as "\x7F" (EPD_DEGREE)
+DEGREE_CODEPOINT = 0xB0
+DIGITS = (0x2D, 0x3A)  # '-' '.' '/' '0'-'9' ':'
+TEXT = (0x20, 0x7F)
 
 U8 = (0, 0xFF)
 I8 = (-0x80, 0x7F)
@@ -40,20 +46,38 @@ U16 = (0, 0xFFFF)
 @dataclass(frozen=True)
 class FontSpec:
     c_name: str
-    ttf: str
-    size: int
+    bdf: str
     first: int
     last: int
+    scale: int = 1
+    narrow: str = ""  # characters whose advance shrinks to their ink plus a small gap
 
 
 FONT_SPECS = [
-    FontSpec("font_digits_80", "DejaVuSans-Bold.ttf", 80, 0x2D, 0x3A),
-    FontSpec("font_digits_64", "DejaVuSans-Bold.ttf", 64, 0x2D, 0x3A),
-    FontSpec("font_digits_44", "DejaVuSans-Bold.ttf", 44, 0x2D, 0x3A),
-    FontSpec("font_bold_22", "DejaVuSans-Bold.ttf", 22, 0x20, 0x7F),
-    FontSpec("font_bold_16", "DejaVuSans-Bold.ttf", 16, 0x20, 0x7F),
-    FontSpec("font_bold_12", "DejaVuSans-Bold.ttf", 12, 0x20, 0x7F),
+    FontSpec("font_clock_64", "spleen-32x64.bdf", *DIGITS, narrow=":"),
+    FontSpec("font_clock_48", "spleen-12x24.bdf", *DIGITS, scale=2, narrow=":"),
+    FontSpec("font_clock_32", "spleen-16x32.bdf", *DIGITS, narrow=":"),
+    FontSpec("font_text_24", "spleen-12x24.bdf", *TEXT),
+    FontSpec("font_text_16", "spleen-8x16.bdf", *TEXT),
+    FontSpec("font_text_12", "spleen-6x12.bdf", *TEXT),
 ]
+
+
+@dataclass
+class BdfGlyph:
+    advance: int
+    width: int
+    height: int
+    x_off: int
+    y_off: int  # BDF: bottom edge relative to the baseline, up is positive
+    rows: list  # list of lists of 0/1
+
+
+@dataclass
+class BdfFont:
+    ascent: int
+    descent: int
+    glyphs: dict  # codepoint -> BdfGlyph
 
 
 @dataclass
@@ -83,53 +107,104 @@ def _fit(value, limits, what):
     return value
 
 
-def _render_glyph(font, size, code):
-    """Render one code point; return (w, h, xAdvance, xOffset, yOffset, packed bits)."""
-    ch = DEGREE_SIGN if code == DEGREE_SLOT else chr(code)
-    pen_x, pen_y = size, 2 * size
-    img = Image.new("L", (4 * size, 4 * size), 0)
-    draw = ImageDraw.Draw(img)
-    draw.fontmode = "1"
-    draw.text((pen_x, pen_y), ch, font=font, fill=255, anchor="ls")
+def parse_bdf(path):
+    ascent = descent = None
+    glyphs = {}
+    lines = Path(path).read_text(encoding="latin-1").splitlines()
+    i = 0
+    while i < len(lines):
+        words = lines[i].split()
+        i += 1
+        if not words:
+            continue
+        if words[0] == "FONT_ASCENT":
+            ascent = int(words[1])
+        elif words[0] == "FONT_DESCENT":
+            descent = int(words[1])
+        elif words[0] == "STARTCHAR":
+            code = advance = bbx = None
+            while not lines[i].startswith("BITMAP"):
+                w = lines[i].split()
+                if w[0] == "ENCODING":
+                    code = int(w[1])
+                elif w[0] == "DWIDTH":
+                    advance = int(w[1])
+                elif w[0] == "BBX":
+                    bbx = tuple(int(v) for v in w[1:5])
+                i += 1
+            i += 1
+            width, height, x_off, y_off = bbx
+            rows = []
+            for _ in range(height):
+                hex_row = lines[i].strip()
+                i += 1
+                bits = int(hex_row, 16)
+                total = len(hex_row) * 4
+                rows.append([(bits >> (total - 1 - col)) & 1 for col in range(width)])
+            if lines[i].strip() != "ENDCHAR":
+                raise ValueError(f"{path}: malformed glyph {code}")
+            i += 1
+            glyphs[code] = BdfGlyph(advance, width, height, x_off, y_off, rows)
+    if ascent is None or descent is None:
+        raise ValueError(f"{path}: missing FONT_ASCENT/FONT_DESCENT")
+    return BdfFont(ascent, descent, glyphs)
 
-    x_advance = _fit(round(font.getlength(ch)), U8, f"xAdvance[0x{code:02X}]")
-    bbox = img.getbbox()
-    if bbox is None:
-        # No ink (space): 1x1 blank bitmap, zero offsets.
-        return 1, 1, x_advance, 0, 0, b"\x00"
 
-    left, top, right, bottom = bbox
-    width, height = right - left, bottom - top
-    _fit(width, U8, f"width[0x{code:02X}]")
-    _fit(height, U8, f"height[0x{code:02X}]")
-    x_offset = _fit(left - pen_x, I8, f"xOffset[0x{code:02X}]")
-    y_offset = _fit(top - pen_y, I8, f"yOffset[0x{code:02X}]")
+def _convert_glyph(spec, code, src):
+    """Crop a BDF glyph to its ink, scale it and pack it MSB-first."""
+    s = spec.scale
+    ink = [(r, c) for r, row in enumerate(src.rows) for c, bit in enumerate(row) if bit]
+    advance = src.advance * s
+    tag = f"{spec.c_name}[0x{code:02X}]"
+    if not ink:
+        return 1, 1, _fit(advance, U8, f"xAdvance {tag}"), 0, 0, b"\x00"
 
-    pix = img.load()
+    top = min(r for r, _ in ink)
+    bottom = max(r for r, _ in ink) + 1
+    left = min(c for _, c in ink)
+    right = max(c for _, c in ink) + 1
+    width = (right - left) * s
+    height = (bottom - top) * s
+    x_offset = (src.x_off + left) * s
+    y_offset = (top - (src.y_off + src.height)) * s
+
+    if chr(code) in spec.narrow:
+        gap = max(2, src.advance // 8) * s
+        x_offset = gap
+        advance = width + 2 * gap
+
     bits = bytearray((width * height + 7) // 8)
     idx = 0
     for row in range(height):
+        src_row = src.rows[top + row // s]
         for col in range(width):
-            if pix[left + col, top + row]:
+            if src_row[left + col // s]:
                 bits[idx >> 3] |= 0x80 >> (idx & 7)
             idx += 1
-    return width, height, x_advance, x_offset, y_offset, bytes(bits)
+
+    return (
+        _fit(width, U8, f"width {tag}"),
+        _fit(height, U8, f"height {tag}"),
+        _fit(advance, U8, f"xAdvance {tag}"),
+        _fit(x_offset, I8, f"xOffset {tag}"),
+        _fit(y_offset, I8, f"yOffset {tag}"),
+        bytes(bits),
+    )
 
 
-def build_font(spec, font_dir):
-    ttf_path = os.path.join(font_dir, spec.ttf)
-    font = ImageFont.truetype(ttf_path, spec.size)
-
+def build_font(spec, bdf_dir):
+    bdf = parse_bdf(Path(bdf_dir) / spec.bdf)
     glyphs = []
     blob = bytearray()
     for code in range(spec.first, spec.last + 1):
-        width, height, x_adv, x_off, y_off, data = _render_glyph(font, spec.size, code)
-        offset = _fit(len(blob), U16, f"bitmapOffset[0x{code:02X}] in {spec.c_name}")
+        source = DEGREE_CODEPOINT if code == DEGREE_SLOT else code
+        if source not in bdf.glyphs:
+            raise KeyError(f"{spec.bdf} has no glyph U+{source:04X}")
+        width, height, x_adv, x_off, y_off, data = _convert_glyph(spec, code, bdf.glyphs[source])
+        offset = _fit(len(blob), U16, f"bitmapOffset {spec.c_name}[0x{code:02X}]")
         glyphs.append(Glyph(code, offset, width, height, x_adv, x_off, y_off, data))
         blob += data
-
-    ascent, descent = font.getmetrics()
-    y_advance = _fit(ascent + descent, U8, f"yAdvance in {spec.c_name}")
+    y_advance = _fit((bdf.ascent + bdf.descent) * spec.scale, U8, f"yAdvance {spec.c_name}")
     return BuiltFont(spec, glyphs, bytes(blob), y_advance)
 
 
@@ -147,23 +222,21 @@ def _char_comment(code):
 def render_header(built):
     spec = built.spec
     name = spec.c_name
-    source = TTF_SOURCE_NAMES.get(spec.ttf, spec.ttf)
+    scale = f", scaled x{spec.scale}" if spec.scale > 1 else ""
     out = [
         "// Generated by tools/fonts/gen_gfx_fonts.py -- do not edit.",
-        f"// Source: {source}, {spec.size}px, chars 0x{spec.first:02X}-0x{spec.last:02X}. "
-        "DejaVu fonts license: see tools/fonts/README.md",
+        f"// Source: Spleen {SPLEEN_VERSION} {spec.bdf}{scale}, chars 0x{spec.first:02X}-0x{spec.last:02X}."
+        " BSD-2-Clause, see tools/fonts/LICENSE_SPLEEN.",
         "#pragma once",
         '#include "../epd_font.h"',
         "",
         f"static const uint8_t {name}_bitmaps[] = {{",
     ]
     for g in built.glyphs:
-        cmt = _char_comment(g.code)
         for i in range(0, len(g.data), 16):
-            chunk = g.data[i:i + 16]
-            line = "\t" + ", ".join(f"0x{b:02X}" for b in chunk) + ","
+            line = "\t" + ", ".join(f"0x{b:02X}" for b in g.data[i:i + 16]) + ","
             if i == 0:
-                line += f" // {cmt}"
+                line += f" // {_char_comment(g.code)}"
             out.append(line)
     out += [
         "};",
@@ -187,90 +260,78 @@ def render_header(built):
     return "\n".join(out)
 
 
-def _decode_bit(built, glyph, row, col):
-    idx = row * glyph.width + col
-    byte = built.bitmap[glyph.bitmap_offset + (idx >> 3)]
-    return (byte >> (7 - (idx & 7))) & 1
-
-
 def render_check(built, out_path):
-    """Draw a sample string from the in-memory tables, following epd_canvas_text."""
-    spec = built.spec
-    text = CHECK_TEXT_DIGITS if spec.c_name.startswith("font_digits_") else CHECK_TEXT_TEXT
-    margin = built.y_advance
-    baseline = 2 * built.y_advance
-    total_adv = 0
-    for ch in text:
-        total_adv += built.glyphs[ord(ch) - spec.first].x_advance
-    width = total_adv + 2 * margin
-    height = 3 * built.y_advance
+    """Draw a sample string from the generated tables the way epd_canvas_text does."""
+    from PIL import Image
 
+    spec = built.spec
+    text = "-0123456789:" if spec.last == DIGITS[1] else "Thu 08 Oct 23\x7fC 2.98V 89% Ag"
+    margin = built.y_advance // 2
+    baseline = margin + built.y_advance
+    width = sum(built.glyphs[ord(ch) - spec.first].x_advance for ch in text) + 2 * margin
+    height = 2 * built.y_advance
     canvas = bytearray(b"\xff" * (width * height))
     pen = margin
     for ch in text:
-        code = ord(ch)
-        if not spec.first <= code <= spec.last:
-            raise ValueError(f"check char 0x{code:02X} outside font range")
-        g = built.glyphs[code - spec.first]
-        dx = pen + g.x_offset
-        dy = baseline + g.y_offset
-        for row in range(g.height):
-            for col in range(g.width):
-                if not _decode_bit(built, g, row, col):
-                    continue
-                x, y = dx + col, dy + row
-                if not (0 <= x < width and 0 <= y < height):
-                    raise ValueError(f"{spec.c_name}: glyph 0x{code:02X} clipped in check canvas")
+        g = built.glyphs[ord(ch) - spec.first]
+        for idx in range(g.width * g.height):
+            if built.bitmap[g.bitmap_offset + (idx >> 3)] & (0x80 >> (idx & 7)):
+                x = pen + g.x_offset + idx % g.width
+                y = baseline + g.y_offset + idx // g.width
                 canvas[y * width + x] = 0
         pen += g.x_advance
-
     img = Image.frombytes("L", (width, height), bytes(canvas))
-    img = img.resize((width * 3, height * 3), Image.NEAREST)
-    img.save(out_path)
+    img.resize((width * 3, height * 3), Image.NEAREST).save(out_path)
     return out_path
 
 
-def default_font_dir():
-    try:
-        import matplotlib
+def fetch_spleen():
+    """Download the pinned Spleen release once and return the directory holding its BDF files."""
+    needed = {spec.bdf for spec in FONT_SPECS}
+    if all((CACHE_DIR / name).is_file() for name in needed):
+        return CACHE_DIR
+    print(f"Downloading {SPLEEN_URL}")
+    context = None
+    try:  # python.org builds on macOS ship without a CA bundle
+        import certifi
+
+        context = ssl.create_default_context(cafile=certifi.where())
     except ImportError:
-        return None
-    return os.path.join(matplotlib.get_data_path(), "fonts", "ttf")
+        pass
+    with urllib.request.urlopen(SPLEEN_URL, context=context) as response:
+        archive = response.read()
+    digest = hashlib.sha256(archive).hexdigest()
+    if digest != SPLEEN_SHA256:
+        raise RuntimeError(f"Spleen archive sha256 {digest} != pinned {SPLEEN_SHA256}")
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        for member in tar.getmembers():
+            name = Path(member.name).name
+            if name in needed:
+                (CACHE_DIR / name).write_bytes(tar.extractfile(member).read())
+    return CACHE_DIR
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--font-dir", help="directory containing DejaVuSans.ttf and DejaVuSans-Bold.ttf")
-    parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR),
-                        help="output directory for generated headers (default: Firmware/src/fonts)")
-    parser.add_argument("--check", action="store_true",
-                        help="also save visual self-check PNGs to /tmp/gfx_font_check/")
+    parser.add_argument("--bdf-dir", help="directory with the Spleen .bdf files (default: download the pinned release)")
+    parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="output directory (default: Firmware/src/fonts)")
+    parser.add_argument("--check", action="store_true", help=f"also write preview PNGs to {CHECK_DIR}")
     args = parser.parse_args(argv)
 
-    font_dir = args.font_dir or default_font_dir()
-    if font_dir is None:
-        parser.error("matplotlib is not importable; pass --font-dir DIR containing DejaVuSans-Bold.ttf")
-    for spec in FONT_SPECS:
-        path = os.path.join(font_dir, spec.ttf)
-        if not os.path.isfile(path):
-            parser.error(f"font file not found: {path}")
-
+    bdf_dir = Path(args.bdf_dir) if args.bdf_dir else fetch_spleen()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     if args.check:
         CHECK_DIR.mkdir(parents=True, exist_ok=True)
 
     for spec in FONT_SPECS:
-        built = build_font(spec, font_dir)
-        header_path = out_dir / f"{spec.c_name}.h"
-        header_path.write_text(render_header(built), encoding="utf-8")
-        zero = next(g for g in built.glyphs if g.code == ord("0")) if spec.first <= ord("0") <= spec.last else None
-        zero_h = zero.height if zero else "n/a"
-        print(f"{header_path}: bitmap={len(built.bitmap)} bytes, yAdvance={built.y_advance}, "
-              f"'0' height={zero_h}")
+        built = build_font(spec, bdf_dir)
+        header = out_dir / f"{spec.c_name}.h"
+        header.write_text(render_header(built), encoding="utf-8")
+        print(f"{header}: {len(built.bitmap)} bitmap bytes, yAdvance {built.y_advance}")
         if args.check:
-            png = render_check(built, CHECK_DIR / f"{spec.c_name}.png")
-            print(f"  check: {png}")
+            print(f"  check: {render_check(built, CHECK_DIR / f'{spec.c_name}.png')}")
     return 0
 
 

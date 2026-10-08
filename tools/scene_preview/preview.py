@@ -30,7 +30,7 @@ def main() -> int:
             [
                 os.environ.get("CC", "cc"),
                 "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter",
-                "-funsigned-char", "-I", SRC,
+                "-funsigned-char", "-DEPD_CANVAS_COUNT_CLIPPED", "-I", SRC,
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene_preview.c"),
                 os.path.join(SRC, "epd_canvas.c"),
                 os.path.join(SRC, "epd_scenes.c"),
@@ -38,14 +38,33 @@ def main() -> int:
             ],
             check=True,
         )
-        ppms = subprocess.run([exe, build], check=True, capture_output=True, text=True).stdout.split()
-        for ppm in ppms:
+        run = subprocess.run([exe, build], capture_output=True, text=True)
+        if run.returncode not in (0, 2):
+            sys.stderr.write(run.stderr)
+            return run.returncode
+        images = []
+        for ppm in run.stdout.split():
             image = Image.open(ppm)
             image = image.resize((image.width * args.scale, image.height * args.scale), Image.NEAREST)
             png = os.path.join(args.out_dir, os.path.splitext(os.path.basename(ppm))[0] + ".png")
             image.save(png)
+            images.append(image)
             print(png)
-    return 0
+
+    # Everything on one page: one row per panel size and state, scenes side by side.
+    gap = 4 * args.scale
+    cell_w = max(i.width for i in images)
+    cell_h = max(i.height for i in images)
+    sheet = Image.new("RGB", (2 * cell_w + 3 * gap, (len(images) // 2) * (cell_h + gap) + gap), (90, 90, 90))
+    for k, image in enumerate(images):
+        sheet.paste(image, (gap + (k % 2) * (cell_w + gap), gap + (k // 2) * (cell_h + gap)))
+    sheet_path = os.path.join(args.out_dir, "sheet.png")
+    sheet.save(sheet_path)
+    print(sheet_path)
+
+    # Fail (after writing the images, so they can be inspected) when any layout clips or overflows.
+    sys.stderr.write(run.stderr)
+    return run.returncode
 
 
 if __name__ == "__main__":

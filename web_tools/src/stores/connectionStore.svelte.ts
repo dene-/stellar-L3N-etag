@@ -36,6 +36,9 @@ const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(2)!;
 export const OTA_BANK_ADDRESS = 0x20000;
 const OTA_BANK_SIZE = 0x20000;
 export const OTA_MAX_FIRMWARE_SIZE = OTA_BANK_SIZE - 0x100;
+// Rewriting 128 KiB takes a few seconds; the link loss is only noticed after the supervision
+// timeout the firmware requests (20 s), so allow comfortably more than both.
+const OTA_REBOOT_TIMEOUT_MS = 45000;
 
 function resolveDisplayModel(model: number): DisplayModelInfo {
 	return DISPLAY_MODEL_MAP.get(model) ?? DEFAULT_DISPLAY_INFO;
@@ -603,6 +606,25 @@ class BleConnectionStore {
 		}
 	}
 
+	// Resolves true when the device disconnects, false if it is still connected after timeoutMs.
+	private waitForDisconnect(timeoutMs: number): Promise<boolean> {
+		const device = this.bleDevice;
+		const { promise, resolve } = Promise.withResolvers<boolean>();
+		if (!device?.gatt?.connected) {
+			resolve(true);
+			return promise;
+		}
+		const onDisconnect = () => finish(true);
+		const timer = setTimeout(() => finish(false), timeoutMs);
+		const finish = (disconnected: boolean) => {
+			clearTimeout(timer);
+			device.removeEventListener('gattserverdisconnected', onDisconnect);
+			resolve(disconnected);
+		};
+		device.addEventListener('gattserverdisconnected', onDisconnect);
+		return promise;
+	}
+
 	async flashFirmware(address: number, data: Uint8Array): Promise<void> {
 		if (!this.writeCharacteristic) {
 			logStore.addLog('OTA service unavailable. Is Bluetooth connected?');
@@ -643,8 +665,16 @@ class BleConnectionStore {
 				`Firmware upload completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
 			);
 
+			// Firmware built before April 2026 compares the CRC of command 07 with bytes 5-6 of its last
+			// reply buffer instead of the command itself, so it never flashes and never answers. Stage the
+			// CRC there: command 03 puts it at offset 5 of the page buffer, command 05 copies that buffer
+			// into the reply buffer, and command 06 below only overwrites bytes 0-2. Harmless on newer firmware.
+			await this.writeCharacteristic.writeValueWithResponse(
+				new Uint8Array([0x03, 0, 0, 0, 0, 0, crc >> 8, crc & 0xff])
+			);
+			await this.otaRequest(new Uint8Array([0x05, 0, 0, 0, 0]), (d) => d.length === 20, 3000);
+
 			// Command 06: device sums the uploaded bank and replies 07 <crc hi> <crc lo>.
-			// Firmware older than the on-device CRC check also needs this before command 07.
 			logStore.addLog('Verifying flash CRC on device...');
 			const verify = await this.otaRequest(
 				new Uint8Array([0x06]),
@@ -664,37 +694,44 @@ class BleConnectionStore {
 				logStore.addLog('No CRC reply from device, continuing; the device verifies it again.');
 			}
 
-			// Command 07 <magic> <crc>: device re-checks the CRC, then rewrites its own flash and reboots.
-			// Only a rejection is ever reported back (07 00 <crc hi> <crc lo>).
+			// Command 07 <magic> <crc>: the device rewrites its own flash with interrupts off and reboots,
+			// so success is never acknowledged: it shows up as the link dropping. Firmware may reject with
+			// 07 00 (bad command) or 07 00 <crc hi> <crc lo> (CRC mismatch); old firmware rejects silently.
+			const rebooted = this.waitForDisconnect(OTA_REBOOT_TIMEOUT_MS);
 			logStore.addLog('Sending final flash command: 07C001CEED' + crcHex);
 			let rejected: Uint8Array | null = null;
 			try {
 				rejected = await this.otaRequest(
 					new Uint8Array([0x07, 0xc0, 0x01, 0xce, 0xed, crc >> 8, crc & 0xff]),
-					(d) => d.length === 4 && d[0] === 0x07 && d[1] === 0x00,
+					(d) => d[0] === 0x07 && d[1] === 0x00 && (d.length === 2 || d.length === 4),
 					5000
 				);
-			} catch (e) {
-				// The device never acknowledges a successful flash: it reboots mid-write.
-				logStore.addLog(
-					'Connection lost after final command (' +
-						(e instanceof Error ? e.message : String(e)) +
-						'); the device is probably rebooting into the new firmware.'
-				);
-				return;
+			} catch {
+				// A device busy rewriting its flash stops answering; the link drop is awaited below.
 			}
 
 			if (rejected) {
-				const deviceCrc = (rejected[2] << 8) | rejected[3];
-				logStore.addLog(
-					`Device rejected the firmware: its CRC is 0x${deviceCrc.toString(16).padStart(4, '0')}, expected 0x${crcHex}. Nothing was flashed.`
-				);
+				const detail =
+					rejected.length === 4
+						? `its CRC is 0x${((rejected[2] << 8) | rejected[3]).toString(16).padStart(4, '0')}, expected 0x${crcHex}`
+						: 'bad final command';
+				logStore.addLog(`Device rejected the firmware (${detail}). Nothing was flashed.`);
 				return;
 			}
 
 			logStore.addLog(
-				'Final command accepted. The device is rewriting its flash and will reboot; do not remove power.'
+				'Waiting for the device to rewrite its flash and reboot; do not remove power...'
 			);
+			if (await rebooted) {
+				logStore.addLog(
+					'Device dropped the connection: it is rewriting its flash and rebooting. Reconnect in ~10 s; the screen redraws on boot.'
+				);
+			} else {
+				logStore.addLog(
+					`Device is still connected ${OTA_REBOOT_TIMEOUT_MS / 1000} s after the final command, so it did NOT apply the update. ` +
+						'Its current firmware cannot self-update over BLE: flash it once over UART (Serial firmware panel).'
+				);
+			}
 		} catch (e) {
 			await handleError(e);
 		} finally {

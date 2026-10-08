@@ -29,6 +29,9 @@ typedef struct
     int16_t width;
     int16_t height;
     uint8_t has_red;
+#ifdef EPD_CANVAS_COUNT_CLIPPED
+    uint32_t clipped; // pixels drawn off-canvas plus text overflowing its box; the host preview fails on any
+#endif
 } epd_canvas_t;
 
 // Ink bounds of a string relative to the pen start on the baseline (right/bottom exclusive).

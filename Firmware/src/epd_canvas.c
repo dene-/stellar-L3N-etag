@@ -10,6 +10,9 @@ void epd_canvas_init(epd_canvas_t *c, uint8_t *black, uint8_t *red, int16_t widt
     c->width = width;
     c->height = height;
     c->has_red = has_red;
+#ifdef EPD_CANVAS_COUNT_CLIPPED
+    c->clipped = 0;
+#endif
     memset(black, 0xFF, size);
     memset(red, 0x00, size);
 }
@@ -20,7 +23,12 @@ void epd_canvas_pixel(epd_canvas_t *c, int16_t x, int16_t y, epd_ink_t ink)
     uint8_t mask;
 
     if (x < 0 || y < 0 || x >= c->width || y >= c->height)
+    {
+#ifdef EPD_CANVAS_COUNT_CLIPPED
+        c->clipped++;
+#endif
         return;
+    }
 
     index = (uint16_t)((c->width - 1 - x) * (c->height >> 3) + (y >> 3));
     mask = 0x80 >> (y & 7);
@@ -198,6 +206,10 @@ int16_t epd_canvas_text_aligned(epd_canvas_t *c, const GFXfont *font, int16_t le
         x = left - box.left;
         break;
     }
+#ifdef EPD_CANVAS_COUNT_CLIPPED
+    if (box.right - box.left > right - left)
+        c->clipped += (uint32_t)((box.right - box.left) - (right - left));
+#endif
 
     epd_canvas_text(c, font, x, baseline, text, ink);
     return x;
