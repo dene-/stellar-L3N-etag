@@ -14,6 +14,8 @@
 // Ends below the SDK's MAC address and calibration sectors (0x76000, 0x77000); settings are at 0x78100.
 #define IMAGE_STORE_END_ADDR CFG_ADR_MAC
 #define IMAGE_STORE_TOTAL_DATA_BYTES (IMAGE_STORE_END_ADDR - IMAGE_STORE_DATA_ADDR)
+#define IMAGE_STORE_SECTOR_SIZE 0x1000
+#define IMAGE_STORE_DATA_SECTORS (IMAGE_STORE_TOTAL_DATA_BYTES / IMAGE_STORE_SECTOR_SIZE)
 
 typedef char image_store_end_check[(CFG_ADR_MAC == 0x76000 && CUST_CAP_INFO_ADDR == 0x77000) ? 1 : -1];
 
@@ -34,6 +36,9 @@ typedef struct
 static RAM image_store_header_t image_store_header;
 static RAM uint8_t image_store_ready = 0;
 static RAM uint8_t image_store_display_pending = 0;
+// Data sectors erased since image_store_prepare(), one bit each. An upload erases a sector when its
+// first chunk arrives instead of erasing the whole store up front, which took seconds.
+static RAM uint32_t image_store_erased_sectors[(IMAGE_STORE_DATA_SECTORS + 31) / 32];
 
 static uint8_t image_store_checksum(const image_store_header_t *header)
 {
@@ -110,6 +115,34 @@ static void image_store_erase_all_blocks(void)
       flash_erase_sector(address);
       address += 0x1000;
     }
+  }
+}
+
+static void image_store_erase_data_sector_once(uint32_t sector)
+{
+  uint32_t bit = 1UL << (sector % 32);
+
+  if (image_store_erased_sectors[sector / 32] & bit)
+  {
+    return;
+  }
+  flash_erase_sector(IMAGE_STORE_DATA_ADDR + sector * IMAGE_STORE_SECTOR_SIZE);
+  image_store_erased_sectors[sector / 32] |= bit;
+}
+
+// Erases the data sectors in [address, address + length) this upload has not erased yet.
+static void image_store_erase_data_once(uint32_t address, uint32_t length)
+{
+  uint32_t sector;
+
+  if (!length)
+  {
+    return;
+  }
+  for (sector = (address - IMAGE_STORE_DATA_ADDR) / IMAGE_STORE_SECTOR_SIZE;
+       sector <= (address + length - 1 - IMAGE_STORE_DATA_ADDR) / IMAGE_STORE_SECTOR_SIZE; sector++)
+  {
+    image_store_erase_data_sector_once(sector);
   }
 }
 
@@ -196,9 +229,10 @@ uint8_t image_store_prepare(uint8_t model, uint16_t width, uint16_t height, uint
     return 0;
   }
 
-  // Erase only after all validation passes, so we don't lose existing
-  // images if the new configuration turns out to be invalid.
-  image_store_erase_all_blocks();
+  // Validate before touching flash, so invalid parameters keep the stored images. Erasing the
+  // header sector drops them; the data sectors are erased as the chunks arrive.
+  flash_erase_sector(IMAGE_STORE_BASE_ADDR);
+  memset(image_store_erased_sectors, 0, sizeof(image_store_erased_sectors));
   memset(&image_store_header, 0, sizeof(image_store_header));
   image_store_header.magic = IMAGE_STORE_MAGIC;
   image_store_header.version = IMAGE_STORE_VERSION;
@@ -240,6 +274,7 @@ uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t off
     return 0;
   }
 
+  image_store_erase_data_once(address, length);
   image_store_write_bytes(address, data, length);
   return 1;
 }
@@ -251,6 +286,8 @@ uint8_t image_store_finalize(void)
     return 0;
   }
 
+  // Chunks left out (all 0xFF) may have skipped whole sectors that still hold old images.
+  image_store_erase_data_once(IMAGE_STORE_DATA_ADDR, image_store_header.total_data_bytes);
   image_store_header.checksum = image_store_checksum(&image_store_header);
   image_store_write_bytes(IMAGE_STORE_BASE_ADDR, (const uint8_t *)&image_store_header, sizeof(image_store_header));
   image_store_ready = 1;

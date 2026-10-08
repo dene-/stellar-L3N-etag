@@ -5,11 +5,13 @@
 // a black and a red plane of plane_size bytes.
 #define IMAGE_STORE_MAX_COUNT 23
 
-// Erases the store for image_count images for a width x height panel; 0 if they don't fit.
+// Starts a store for image_count images for a width x height panel, dropping the stored ones; 0 if
+// they don't fit. Flash is erased as the chunks reach it, not up front.
 uint8_t image_store_prepare(uint8_t model, uint16_t width, uint16_t height, uint16_t plane_size,
                             uint16_t interval_seconds, uint8_t image_count);
 uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t offset, const uint8_t *data, uint16_t length);
-// Commits the prepared header; the images become available and pending display.
+// Commits the prepared header; the images become available and pending display. Bytes no chunk
+// wrote read as 0xFF, so an upload may leave out chunks that are all 0xFF.
 uint8_t image_store_finalize(void);
 void image_store_clear(void);
 

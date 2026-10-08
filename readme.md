@@ -134,6 +134,12 @@ minute changes. Until a partial and a full refresh have been measured it assumes
 Uploaded images are stored in flash: at most 23 and at most 212 KiB, which is 22 images on a 2.9"
 panel and 21 on a 1.54" one. Images uploaded for one panel size are not shown on another.
 
+An upload sends 240 bytes per write and waits for each response. From v0.13.0 on the tag erases
+each 4 KiB flash sector when the first write reaches it; older firmware erases the whole 212 KiB
+store first, which takes a few seconds. The web tool leaves out writes that are all white in the
+black plane, as erased flash already reads that way (the tag erases any sector left out when the
+upload is committed).
+
 Firmware before v0.7.0 let the image store overlap the flash sectors holding the MAC address and
 the radio calibration. The first boot of a newer version deletes such a store and resets those
 sectors, so the tag gets a new MAC address and `THX_…` name once and its images have to be

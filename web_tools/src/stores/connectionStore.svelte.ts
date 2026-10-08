@@ -569,7 +569,9 @@ class BleConnectionStore {
 			const start = Date.now();
 			logStore.addLog(`Preparing persistent upload for ${images.length} image(s)...`);
 
-			// E5 00: the device erases its image flash (a few seconds) and replies E5 00 <ok>.
+			// E5 00: the device makes room for the images and replies E5 00 <ok>. Firmware before
+			// v0.13.0 erases the whole image flash here (a few seconds); later firmware erases each
+			// sector when the first chunk reaches it.
 			const prepared = await this.writeAndAwaitReply(
 				rxtx,
 				new Uint8Array([
@@ -604,18 +606,22 @@ class BleConnectionStore {
 					for (let offset = 0; offset < buffer.length; offset += chunkSize) {
 						if (uploadAborted) break;
 
-						const chunk = buffer.slice(offset, offset + chunkSize);
-						const packet = new Uint8Array(6 + chunk.length);
+						const chunk = buffer.subarray(offset, offset + chunkSize);
+						// Erased flash reads 0xFF, so all-white stretches of the black plane need no write:
+						// every firmware erases what the upload covers, at the latest on E5 02.
+						if (!chunk.every((byte) => byte === 0xff)) {
+							const packet = new Uint8Array(6 + chunk.length);
 
-						packet[0] = 0xe5;
-						packet[1] = 0x01;
-						packet[2] = index;
-						packet[3] = plane;
-						packet[4] = offset & 0xff;
-						packet[5] = (offset >> 8) & 0xff;
-						packet.set(chunk, 6);
+							packet[0] = 0xe5;
+							packet[1] = 0x01;
+							packet[2] = index;
+							packet[3] = plane;
+							packet[4] = offset & 0xff;
+							packet[5] = (offset >> 8) & 0xff;
+							packet.set(chunk, 6);
 
-						await rxtx.writeValueWithResponse(packet);
+							await rxtx.writeValueWithResponse(packet);
+						}
 						chunksDone++;
 						this.imageUploadProgress = (chunksDone / totalChunks) * 100;
 					}
@@ -630,12 +636,13 @@ class BleConnectionStore {
 				return;
 			}
 
-			// E5 02: the device commits the upload, replies E5 02 <ok> and starts showing it.
+			// E5 02: the device erases the sectors no chunk reached, commits the upload, replies
+			// E5 02 <ok> and starts showing it.
 			const committed = await this.writeAndAwaitReply(
 				rxtx,
 				new Uint8Array([0xe5, 0x02]),
 				isReplyTo(0x02),
-				5000
+				15000
 			);
 			if (!committed || committed[2] !== 0x01) {
 				logStore.addLog('Device did not confirm the upload. Upload it again.');
