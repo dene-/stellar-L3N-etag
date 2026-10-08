@@ -21,7 +21,7 @@
 			role="radio"
 			aria-checked={option.value === value}
 			{disabled}
-			class="min-h-9 flex-1 rounded-full px-3 text-sm whitespace-nowrap text-soft transition-colors hover:not-disabled:text-fg aria-checked:bg-fg aria-checked:text-ink"
+			class="min-h-9 flex-1 rounded-full px-3 text-sm whitespace-nowrap text-soft transition-colors not-aria-checked:hover:not-disabled:text-fg aria-checked:bg-fg aria-checked:text-ink"
 			onclick={() => onchange(option.value)}
 		>
 			{option.label}
