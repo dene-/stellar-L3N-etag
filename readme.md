@@ -1,107 +1,119 @@
-<h1 align="center">Hanshow Stellar L3N Electronic Shelf Label / AirTag Firmware</h1>
+# Hanshow Stellar e-paper tag firmware
 
-### Supported Model L3N@ (Note: Only adapted for the L3N@ 2.9" device; other models from the original project may no longer be compatible)
+Custom firmware for Hanshow Stellar electronic shelf labels built on the Telink TLSR8359 (TLSR825x)
+Bluetooth chip. The tag shows a clock dashboard, an uploaded image or a slideshow, and is managed
+from a browser over Bluetooth. Based on [ATC_TLSR_Paper](https://github.com/atc1441/ATC_TLSR_Paper)
+by atc1441.
 
-### Final Result
+![Dashboard on a 2.9" tag](images/scene-dashboard-296.png)
 
-- [Web image upload](https://dene-.github.io/stellar-L3N-etag/)  
-  ![Bluetooth Management](/images/web.jpg)
-- Clock Mode 2, Image Mode  
-  ![Clock Mode 2, Image Mode](/images/1553702163.jpg)
+![Clock on a 2.9" tag](images/scene-clock-296.png) ![Dashboard on a 2.13" tag](images/scene-dashboard-213.png)
 
-![Clock Mode 2, Image Mode](/images/1587504241.jpg)
+The screens above are rendered by `tools/scene_preview` from the same code that runs on the tag.
 
-### Flashing Steps
+## Supported tags
 
-- 1. Remove the battery cover and check whether the PCB matches the photo below (or confirm the MCU is TLSR8359).
-
-![Soldering Diagram](/USB_UART_Flashing_connection.jpg)
-
-- 2. Solder four wires: GND, VCC, RX, RTS.
-- 3. Use a USB-to-TTL module (CH340) to connect the four wires: RX -> TX, TX -> RX, VCC -> 3.3V, GND -> GND. Connect the RTS flying lead to pin 3 of the CH340G chip (optional; you can instead momentarily short it to GND before flashing).
-- 4. Open https://atc1441.github.io/ATC_TLSR_Paper_UART_Flasher.html, keep baud rate at default 460800, Atime default, select file Firmware/ATC_Paper.bin.
-- 5. Click Unlock, then Write to flash, and wait. On success the screen refreshes automatically.
-
-### Project Build
-
-```cmd
-cd Firmware
-makeit.exe clean && makeit.exe -j12
-```
-
-Sample successful build output:
-
-```
-'Create Flash image (binary format)'
-'Invoking: TC32 Create Extended Listing'
-'Invoking: Print Size'
-"tc32_windows\\bin\\"tc32-elf-size -t ./out/ATC_Paper.elf
-copy from `./out/ATC_Paper.elf' [elf32-littletc32] to `./out/../ATC_Paper.bin' [binary]
-   text    data     bss     dec     hex filename
-  75608    4604   25341  105553   19c51 ./out/ATC_Paper.elf
-  75608    4604   25341  105553   19c51 (TOTALS)
-'Finished building: sizedummy'
-' '
-tl_fireware_tools.py v0.1 dev
-Firmware CRC32: 0xe62d501e
-'Finished building: out/../ATC_Paper.bin'
-' '
-'Finished building: out/ATC_Paper.lst'
-' '
-```
-
-### Project Build Using Docker (ARM, etc)
-
-Run `./build_docker.sh`, and wait for the output in `/Firmware` folder.
-
-### Firmware layout
-
-`Firmware/src` is layered; dependencies only point inwards:
-
-| Directory | Contains | May include |
+| Tag | Panel | Tested on hardware |
 | --- | --- | --- |
-| `domain/` | Rules and rendering: panel catalog, refresh policy, slideshow schedule, calendar, scenes and canvas | `domain/` only, no SDK |
-| `application/` | Use cases: display session, scenes, image upload, settings, telemetry, status LED | `domain/`, its own `ports/` headers |
-| `application/ports/` | What the use cases need from hardware (panel, clock, image storage, settings storage, battery, LED, telemetry sink) | |
-| `infrastructure/` | SDK adapters implementing the ports: EPD drivers, flash storage, clock, LED, battery, NFC, UART | everything inwards + SDK |
-| `ble/` | GATT table and the RxTx, raw EPD and OTA services, translating writes into use cases | everything inwards + SDK |
-| `main.c` | Boot, wiring and the main loop | everything |
+| Stellar L3N@ 2.9" | BWR296, 296x128, black/white/red | yes |
+| Stellar Pro 213R-N | BWR213, 250x128, black/white/red | yes |
+| Other Stellar tags with these panels | see [Display models](#display-models) | no |
 
-`domain/` and `application/` build without the Telink SDK. `python3 tools/firmware_tests/run.py` compiles them with the host `cc` against fake ports and runs their tests.
+`Compatible_models/` has photos of other Stellar variants.
 
-### Bluetooth Connection and OTA Update
+## Web tool
 
-- 1. You must disconnect the TTL TX line first, otherwise Bluetooth will not connect.
-- 2. OTA update: use "Flash firmware" in the web tool. The update is applied when the device drops the connection; if it is still connected 45 s after the final command, the log says so and nothing was flashed.
-- Firmware built before April 2026 compares the final command's CRC against the wrong buffer and never self-updates; the web tool works around it automatically, so no UART reflash is needed.
+Open <https://dene-.github.io/stellar-L3N-etag/> in Chrome or Edge (Web Bluetooth; the serial
+flasher also needs Web Serial). To run it locally: `cd web_tools && npm install && npm run dev`.
 
-### Upload Images
+It can:
 
-- 1. Open the web tool (deployed to GitHub Pages from `main`), or run it locally: `cd web_tools && npm install && npm run dev`.
-- 2. Connect via Bluetooth on the page (Chrome/Edge; Web Bluetooth needs https or localhost).
-- 3. Select and upload an image; you can then add text, draw manually, or choose a dithering algorithm.
-- 4. Send to device and wait for the screen to refresh.
+- set the tag's clock and time zone (done automatically on every connect)
+- switch the screen, choose the display model, toggle fast refresh and the status LED
+- convert pictures with a choice of dithering and upload one image or a slideshow
+- update the firmware over Bluetooth, or flash it over a USB serial adapter
 
-### Screens
+![Device controls](images/web-control.png)
 
-Switch scenes from the web page (Scene buttons) or with BLE command `E1 <scene>`:
+![Image upload](images/web-upload.png)
+
+## First install (UART)
+
+A tag running the stock firmware has to be flashed over its serial pins once.
+
+1. Open the battery cover and check that the board matches the photo below, or that the chip is a
+   TLSR8359.
+2. Solder wires to GND, VCC, RX and RTS.
+3. Connect a USB serial adapter (CH340): RX to TX, TX to RX, VCC to 3.3 V, GND to GND. Connect RTS
+   to pin 3 of the CH340G, or briefly short it to GND before flashing instead.
+4. In the web tool, open "Serial firmware flash", click "Open" and pick the adapter, select
+   `ATC_Paper.bin` from the [latest release](https://github.com/dene-/stellar-L3N-etag/releases/latest),
+   then click "Unlock Flash" and "Write to Flash". The screen redraws when the tag restarts.
+5. Disconnect the adapter's TX line before using Bluetooth; the tag does not connect while it is
+   attached.
+
+![UART wiring](USB_UART_Flashing_connection.jpg)
+
+## Updating over Bluetooth
+
+Connect in the web tool, open "BLE firmware flash", select the new `ATC_Paper.bin` and upload it.
+The tag reboots into the new firmware and drops the connection; reconnect after about 10 seconds.
+
+The flash holds two 128 KiB firmware banks. An update is written to the bank that is not running
+and only started once its checksum matches, so a failed or interrupted upload leaves the current
+firmware in place. Firmware before v0.8.0 copies the update over itself instead: the first update
+from such a version still must not lose power while it runs.
+
+## Clock
+
+The tag keeps UTC. On every connect the web tool sends the time, the browser's time zone offset and
+its daylight saving changes for the next few years (up to 8), so the tag switches between summer
+and winter time by itself.
+
+The clock runs on the chip's internal oscillator, which drifts by a few hundred ppm. Each time sync
+at least 6 hours after the previous one measures the drift and stores a correction, so the clock
+gets more accurate the more often you connect. The time is lost when the battery is removed; the
+screens then show `--:--` until the next connect.
+
+## Battery and temperature
+
+The battery level is estimated from the cell voltage along a CR2032 discharge curve: about 100 %
+at 3.0 V, 42 % at 2.9 V, 18 % at 2.74 V, 0 % at 2.1 V. The voltage stays flat for most of a coin
+cell's life, so the percentage falls slowly at first and quickly near the end.
+
+The only temperature sensor is the one in the panel controller. SSD16xx panels report it in steps
+of 1/16 °C, UC8151 panels (the 2.13" ones) in whole degrees. It is measured on every screen
+refresh, every 30 seconds while connected and every 5 minutes otherwise. The sensor sits inside the
+display module, so it follows the room with some delay.
+
+The tag advertises temperature, battery percentage and voltage in the ATC1441 format (service data
+UUID 0x181A).
+
+## Screens
 
 | Scene | Shows |
 | --- | --- |
 | 0 | Last uploaded image |
-| 1 | Clock: large time, temperature, battery, date band |
-| 2 | Dashboard (default): tag name, time, temperature, battery voltage, date band |
-| 3 | Slideshow of uploaded images |
+| 1 | Clock: large time, temperature, battery, date |
+| 2 | Dashboard (default): tag name, time, temperature, battery voltage, date |
+| 3 | Slideshow of the uploaded images |
 
-Until the time is set over BLE, the clock scenes show `--:--` and "Set time via Bluetooth". Clock scenes redraw once a minute, skip the refresh when nothing changed, use a partial refresh for black-only changes and a full one whenever red content changes (date band, low battery), plus a full one every 10 partial refreshes against ghosting. "Fast refresh" in the web tool drops those periodic full refreshes and makes requested redraws partial; red changes and images are always shown with a full refresh, since a partial one cannot draw red.
+The clock scenes redraw once a minute and only refresh the panel when the picture changed. Changes
+in black use a partial refresh; changes in red (the date band, a low battery) use a full one, and
+every 10th refresh is full to clear ghosting. "Fast refresh" in the web tool skips those periodic
+full refreshes. Images are always shown with a full refresh, since a partial one cannot draw red.
 
-Uploaded images (one image or a slideshow) are stored in MCU flash: at most 23, and within 212 KiB, which allows 22 on the 2.9" panel and 21 on the 1.54". Firmware before this release let the store run into the flash sectors holding the MAC address and the radio's crystal calibration. On the first boot of the new firmware, a store that overlapped them is deleted and the two sectors are reset to defaults; the tag then gets a new generated MAC (so a new `THX_…` name) once, and its images have to be uploaded again.
+Uploaded images are stored in flash: at most 23 and at most 212 KiB, which is 22 images on a 2.9"
+panel and 21 on a 1.54" one. Images uploaded for one panel size are not shown on another.
 
-Scene code lives in `Firmware/src/domain/epd_scenes.c` (layouts) and `epd_canvas.c` (drawing). Text uses the Spleen bitmap font, converted pixel for pixel by `tools/fonts/gen_gfx_fonts.py`. Preview layouts on your computer without flashing: `python3 tools/scene_preview/preview.py` (needs `cc` and Pillow). It writes one PNG per panel size, scene and state plus a `sheet.png` overview to your temp dir, and exits non-zero if any text or shape is clipped or overflows its box.
+Firmware before v0.7.0 let the image store overlap the flash sectors holding the MAC address and
+the radio calibration. The first boot of a newer version deletes such a store and resets those
+sectors, so the tag gets a new MAC address and `THX_…` name once and its images have to be
+uploaded again.
 
-### Display models
+## Display models
 
-| `E0` model | Panel | Resolution | Colors | Controller family |
+| `E0` model | Panel | Resolution | Colors | Controller |
 | --- | --- | --- | --- | --- |
 | 0 | Auto-detect (default) | | | |
 | 1 | BW213 | 250x128 | black/white | UC8151 |
@@ -111,35 +123,83 @@ Scene code lives in `Firmware/src/domain/epd_scenes.c` (layouts) and `epd_canvas
 | 5 | BWR290 / BWR296 (Stellar L3N@, 290R-N) | 296x128 | black/white/red | SSD16xx |
 | 6 | BW290 / BW296 | 296x128 | black/white | SSD16xx |
 
-Auto-detection only tells the two controller families apart. After a reset, the BUSY pin idles low on SSD16xx controllers and high on UC8151 ones, so it picks model 5 or model 2; no commands are sent to the panel. Black/white panels, the 2.13" ICE and the 1.54" need their model chosen in the web tool's display model selector (BLE `E0 <model>`); the choice is saved to flash. Black/white models draw the clock scenes without red, and uploaded images keep only their black plane. Images uploaded for one model are not shown after switching to a panel of another size; upload them again.
+Auto-detect only tells the two controller families apart (by the level the BUSY pin idles at after
+a reset) and picks model 5 or 2. Black/white panels, the 2.13" ICE and the 1.54" have to be chosen
+in the web tool; the choice is saved.
 
-### Resolved / Pending Issues
+## Bluetooth commands
 
-- [X] Build errors
-- [X] Flash not taking effect
-- [X] Screen area incorrect / abnormal
-- [X] Bluetooth cannot connect / Bluetooth OTA
-- [X] Automatic model detection (controller family; black/white variants are selected manually)
-- [X] Python image generation script
-- [X] Bluetooth image transfer size mismatch
-- [X] Notify after Bluetooth image upload
-- [X] Add scenes and support switching
-- [X] Image mode
-- [X] Web supports image switching
-- [X] Added new time scene
-- [X] Support setting year / month / day
-- [X] Web supports drawing editor, direct upload, black & white dithering
-- [X] Three-color dithering algorithm; device-side three-color display and Bluetooth transfer support
-- [X] EPD buffer refresh occasional left/right black stripe issue
+Commands are written to characteristic `0x1F1F` of service `0x1F10`, one per write, opcode first.
+Replies come back as notifications on the same characteristic. Multi-byte values are little endian
+unless noted.
 
-### Original readme.md
+| Command | Effect |
+| --- | --- |
+| `B1 <byte>` | Fill the screen with a byte pattern (test) |
+| `DD …` | Set the clock and time zone, see `set_time` in `Firmware/src/ble/rxtx_commands.c` |
+| `DE` | Restore the default settings |
+| `DF` | Save the settings now (they are also saved on disconnect) |
+| `E0 <model>` | Select the display model (table above) |
+| `E1 <scene>` | Switch the screen (table above) |
+| `E2 AA` | Reply with the temperature, int16 in 0.1 °C |
+| `E2 AB` | Reply `E2 AB <model> <width:2> <height:2> <stored model>` |
+| `E2 <other>` | Redraw with a full refresh |
+| `E3 00\|01` | Status LED off/on |
+| `E4 00\|01` | Stop/start the LED rainbow |
+| `E5 …` | Image upload, see `image_upload` in `rxtx_commands.c` |
+| `E6 00\|01\|AA` | Fast refresh off/on/query; replies `E6 <enabled> <supported>` |
 
-[README_EN.md](/README_en.md) (For other models see the original project; this project only supports the L3N@ 2.9" device.)
+Firmware updates use characteristic `0x331F` of service `0x221F`; `Firmware/src/ble/ota_service.c`
+describes the protocol.
 
-> Note: Modified from [ATC_TLSR_Paper](https://github.com/atc1441/ATC_TLSR_Paper).
+## Flash layout
 
-### Reference Material
+| Address | Contents |
+| --- | --- |
+| `0x00000` | Firmware bank 0 |
+| `0x20000` | Firmware bank 1 |
+| `0x40000` | Uploaded images |
+| `0x76000` | MAC address (SDK) |
+| `0x77000` | Crystal calibration (SDK) |
+| `0x78100` | Settings |
 
-- [TLSR8359 Datasheet](/docs/DS_TLSR8359-E_Datasheet for Telink ULP 2.4GHz RF SoC TLSR8359.pdf)
-- [TLSR8x5x BLE Development Handbook (Chinese)](/docs/Telink Kite BLE SDK Developer Handbook中文.pdf)
-- [Display Driver Datasheet SSD1680.pdf](/docs/SSD1680.pdf)
+## Building
+
+With Docker (any platform, including ARM Macs):
+
+```sh
+./build_docker.sh
+```
+
+On Windows: `cd Firmware && makeit.exe clean && makeit.exe -j12`.
+
+Both write `Firmware/ATC_Paper.bin`. Pushes to `main` that change `Firmware/` publish a release;
+changes to `web_tools/` redeploy the web tool.
+
+## Source layout
+
+`Firmware/src` is split into layers; includes only point inwards.
+
+| Directory | Contains | May include |
+| --- | --- | --- |
+| `domain/` | Rules and rendering: panels, refresh policy, slideshow, calendar, time zone, clock calibration, firmware image checks, scenes | `domain/` only, no SDK |
+| `application/` | Use cases: display, screens, image upload, local time, settings, telemetry, status LED | `domain/`, `application/ports/` |
+| `application/ports/` | What the use cases need from the hardware | |
+| `infrastructure/` | SDK adapters for the ports: panel drivers, flash storage, clock, LED, battery, NFC, UART | everything inwards and the SDK |
+| `ble/` | GATT table and the command, raw EPD and OTA services | everything inwards and the SDK |
+| `main.c` | Boot, wiring and the main loop | everything |
+
+`domain/` and `application/` build without the Telink SDK:
+
+- `python3 tools/firmware_tests/run.py` runs their tests with the host C compiler.
+- `python3 tools/scene_preview/preview.py` renders every scene for each panel size to PNG files
+  (needs Pillow) and fails if anything is clipped.
+
+Scene layouts are in `domain/epd_scenes.c`. Text uses the Spleen bitmap font, converted by
+`tools/fonts/gen_gfx_fonts.py`.
+
+## References
+
+- [TLSR8359 datasheet](docs/DS_TLSR8359-E_Datasheet%20for%20Telink%20ULP%202.4GHz%20RF%20SoC%20TLSR8359.pdf)
+- [Telink Kite BLE SDK handbook (Chinese)](docs/Telink%20Kite%20BLE%20SDK%20Developer%20Handbook中文.pdf)
+- [SSD1680 display controller datasheet](docs/SSD1680.pdf)
