@@ -82,7 +82,7 @@ Until the time is set over BLE, the clock scenes show `--:--` and "Set time via 
 
 Scene code lives in `Firmware/src/epd_scenes.c` (layouts) and `epd_canvas.c` (drawing). Text uses the Spleen bitmap font, converted pixel for pixel by `tools/fonts/gen_gfx_fonts.py`. Preview layouts on your computer without flashing: `python3 tools/scene_preview/preview.py` (needs `cc` and Pillow). It writes one PNG per panel size, scene and state plus a `sheet.png` overview to your temp dir, and exits non-zero if any text or shape is clipped or overflows its box.
 
-The display driver defaults to the 2.9" BWR296 (SSD1680). Auto-detection can't identify SSD1680 panels: the chip has no LUT read-back, and its status register looks like a 2.13" ICE. For other tags, pick the model in the web tool's display model selector (BLE `E0 <model>`); the choice is saved to flash.
+The display driver is auto-detected from the controller family. After a reset, the BUSY pin idles low on the SSD1680 (2.9" L3N@ / 290R-N → BWR296) and high on the UC8151C (2.13" 213R-N → BWR213); no commands are sent to the panel. For other tags, or if detection picks wrong, choose the model in the web tool's display model selector (BLE `E0 <model>`); the choice is saved to flash.
 
 ### Integrate with Apple Find My (AirTag Emulation)
 

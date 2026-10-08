@@ -9,7 +9,7 @@
 #include "epd.h"
 #include "flash.h"
 
-#define MAGIC_WORD 0xABCFF123
+#define MAGIC_WORD 0xABCFF124 // bump when defaults must replace saved settings (here: epd_model auto)
 
 RAM settings_struct settings;
 

@@ -61,26 +61,6 @@ static const epd_uc8151c_config_t bwr_213_cfg = {
     .lut_23_size = sizeof(lut_bwr_213_23_part),
 };
 
-_attribute_ram_code_ uint8_t EPD_BWR_213_detect(void)
-{
-    // LUT memory test: write 0xA5 pattern and read back
-    EPD_WriteCmd(0x12);
-    WaitMs(10);
-
-    EPD_WriteCmd(0x32);
-    int i;
-    for (i = 0; i < 153; i++)
-        EPD_WriteData(0xA5);
-
-    EPD_WriteCmd(0x33);
-    for (i = 0; i < 153; i++)
-    {
-        if (EPD_SPI_read() != 0xA5)
-            return 0;
-    }
-    return 1;
-}
-
 _attribute_ram_code_ uint8_t EPD_BWR_213_read_temp(void)
 {
     return epd_uc8151c_read_temp();

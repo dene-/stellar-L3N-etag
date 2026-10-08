@@ -1,6 +1,5 @@
 #pragma once
 
-uint8_t EPD_BWR_213_detect(void);
 uint8_t EPD_BWR_213_read_temp(void);
 
 uint8_t EPD_BWR_213_Display_start(uint8_t full_or_partial);

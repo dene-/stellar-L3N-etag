@@ -179,9 +179,6 @@ static const epd_ssd16xx_config_t bwr_296_cfg = {
     .has_display_update_ctl = 1,
     .partial_lut = LUT_bwr_296_part,
     .partial_lut_size = sizeof(LUT_bwr_296_part),
-    .detect_lut_test_size = 153,
-    .detect_register = 0,
-    .detect_expected = 0,
 };
 
 // Shared init + temp read sequence for Display functions
@@ -204,11 +201,6 @@ static _attribute_ram_code_ uint8_t bwr_296_init_and_read_temp(void)
     WaitMs(5);
 
     return temp;
-}
-
-_attribute_ram_code_ uint8_t EPD_BWR_296_detect(void)
-{
-    return epd_ssd16xx_detect(&bwr_296_cfg);
 }
 
 _attribute_ram_code_ uint8_t EPD_BWR_296_read_temp(void)

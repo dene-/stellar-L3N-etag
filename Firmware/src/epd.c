@@ -186,52 +186,43 @@ void set_EPD_wait_flush()
     epd_wait_update = 1;
 }
 
-// Auto-detection (model 0 only). It cannot identify SSD1680-based panels: the SSD1680 has no
-// "read LUT" command (0x33), so both LUT tests below fail, and its status register (0x2F) reads
-// 0x01 like the 2.13" ICE, so a 2.9" BWR296 comes out as model 4. Those tags need the model set
-// explicitly; settings.epd_model defaults to EPD_DEFAULT_MODEL.
+// UC8151-family controllers signal busy with BUSY low and idle high; SSD16xx controllers the opposite.
+static uint8_t epd_model_is_uc8151(uint8_t model_nr)
+{
+    return model_nr == EPD_MODEL_BW213 || model_nr == EPD_MODEL_BWR213;
+}
+
+// Auto-detection (EPD_MODEL_AUTO) by controller family, read passively from the idle level of
+// BUSY after a hardware reset: SSD1680/SSD16xx idle low (datasheet: BUSY high only while busy),
+// UC8151C idles high (BUSY_N). No commands are sent: command probes are unsafe here, e.g. the
+// SSD "SW reset" 0x12 starts a refresh on a UC8151C, and the SSD1680 has no LUT read-back.
+// The family maps to this firmware's tags: SSD16xx -> 2.9" BWR296 (L3N, 290R-N),
+// UC8151 -> 2.13" BWR213 (213R-N). Other panels must be selected explicitly (E0 <model>).
 _attribute_ram_code_ void EPD_detect_model(void)
 {
-    EPD_init();
-    // system power
-    uart_puts("EPD_detect_model\r\n");
-    uart_puts("EPD_POWER_ON\r\n");
-    EPD_POWER_ON();
+    uint8_t idle_high = 0;
+    uint8_t i;
 
+    EPD_init();
+    EPD_POWER_ON();
     WaitMs(10);
-    // Reset the EPD driver IC
     gpio_write(EPD_RESET, 0);
     WaitMs(10);
     gpio_write(EPD_RESET, 1);
     WaitMs(10);
 
-    // Here we neeed to detect it
-    if (EPD_BWR_296_detect())
+    // Majority vote over 16 ms rides out the end of the controller's reset busy phase.
+    for (i = 0; i < 16; i++)
     {
-        epd_model = 5;
+        idle_high += gpio_read(EPD_BUSY) ? 1 : 0;
+        WaitMs(1);
     }
-    else if (EPD_BWR_213_detect())
-    {
-        epd_model = 2;
-    }
-    //    else if (EPD_BWR_154_detect())// Right now this will never trigger, the 154 is same to 213BWR right now.
-    //    {
-    //        epd_model = 3;
-    //    }
-    else if (EPD_BW_213_ice_detect())
-    {
-        epd_model = 4;
-    }
-    else
-    {
-        epd_model = 1;
-    }
+    epd_model = (idle_high > 8) ? EPD_MODEL_BWR213 : EPD_MODEL_BWR296;
 
     uart_puts("Detected :");
     uart_puts(epd_model_string[epd_model]);
     uart_puts("\r\n");
 
-    uart_puts("EPD_POWER_ON\r\n");
     EPD_POWER_OFF();
 }
 
@@ -340,16 +331,8 @@ _attribute_ram_code_ uint8_t epd_state_handler(void)
         // Nothing todo
         break;
     case 1: // check if refresh is done and sleep epd if so
-        if (epd_model == 1)
-        {
-            if (!EPD_IS_BUSY())
-                epd_set_sleep();
-        }
-        else
-        {
-            if (EPD_IS_BUSY())
-                epd_set_sleep();
-        }
+        if (epd_model_is_uc8151(epd_model) ? !EPD_IS_BUSY() : EPD_IS_BUSY())
+            epd_set_sleep();
         break;
     }
     return epd_update_state;

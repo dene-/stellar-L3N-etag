@@ -16,7 +16,7 @@ enum
 // Display drivers (command E0 <model>, reported by E2 AB).
 enum
 {
-    EPD_MODEL_AUTO = 0, // detect on first use; unreliable, see EPD_detect_model()
+    EPD_MODEL_AUTO = 0, // pick BWR296 or BWR213 by controller family on first use, see EPD_detect_model()
     EPD_MODEL_BW213 = 1,
     EPD_MODEL_BWR213 = 2,
     EPD_MODEL_BWR154 = 3,
@@ -24,8 +24,9 @@ enum
     EPD_MODEL_BWR296 = 5,
 };
 
-// This firmware targets the Stellar L3N@ 2.9" tag (SSD1680, which auto-detection cannot identify).
-#define EPD_DEFAULT_MODEL EPD_MODEL_BWR296
+// Auto-detection covers the tags this firmware targets: Stellar L3N@ / 290R-N (2.9", SSD1680)
+// and Stellar Pro 213R-N (2.13", UC8151C). Other panels are selected with E0 <model>.
+#define EPD_DEFAULT_MODEL EPD_MODEL_AUTO
 
 void set_EPD_model(uint8_t model_nr);
 uint8_t get_EPD_model(void);

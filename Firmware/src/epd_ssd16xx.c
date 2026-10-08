@@ -106,36 +106,6 @@ _attribute_ram_code_ uint8_t epd_ssd16xx_read_temp(const epd_ssd16xx_config_t *c
   return temp;
 }
 
-_attribute_ram_code_ uint8_t epd_ssd16xx_detect(const epd_ssd16xx_config_t *cfg)
-{
-  // SW Reset
-  EPD_WriteCmd(0x12);
-  WaitMs(10);
-
-  if (cfg->detect_lut_test_size > 0)
-  {
-    // LUT memory test: write a pattern and read it back
-    int i;
-    EPD_WriteCmd(0x32);
-    for (i = 0; i < cfg->detect_lut_test_size; i++)
-      EPD_WriteData(0xA5);
-
-    EPD_WriteCmd(0x33);
-    for (i = 0; i < cfg->detect_lut_test_size; i++)
-    {
-      if (EPD_SPI_read() != 0xA5)
-        return 0;
-    }
-    return 1;
-  }
-  else
-  {
-    // Register-based detection
-    EPD_WriteCmd(cfg->detect_register);
-    return (EPD_SPI_read() == cfg->detect_expected) ? 1 : 0;
-  }
-}
-
 _attribute_ram_code_ void epd_ssd16xx_set_sleep(void)
 {
   EPD_WriteCmd(0x10);

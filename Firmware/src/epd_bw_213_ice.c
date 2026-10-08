@@ -126,15 +126,7 @@ static const epd_ssd16xx_config_t bw_213_ice_cfg = {
     .has_display_update_ctl = 0,
     .partial_lut = LUT_BW_213_ice_part,
     .partial_lut_size = sizeof(LUT_BW_213_ice_part),
-    .detect_lut_test_size = 0,
-    .detect_register = 0x2F,
-    .detect_expected = 0x01,
 };
-
-_attribute_ram_code_ uint8_t EPD_BW_213_ice_detect(void)
-{
-    return epd_ssd16xx_detect(&bw_213_ice_cfg);
-}
 
 _attribute_ram_code_ uint8_t EPD_BW_213_ice_read_temp(void)
 {

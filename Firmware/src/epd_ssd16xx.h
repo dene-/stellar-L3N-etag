@@ -33,19 +33,11 @@ typedef struct
   // Partial refresh LUT data (without the 0x32 command byte)
   const uint8_t *partial_lut;
   uint16_t partial_lut_size;
-
-  // Detect: number of LUT bytes to test (0 = use register-based detection)
-  uint8_t detect_lut_test_size;
-
-  // Detect: if detect_lut_test_size == 0, read this register and expect this value
-  uint8_t detect_register;
-  uint8_t detect_expected;
 } epd_ssd16xx_config_t;
 
 // Shared SSD16xx functions
 void epd_ssd16xx_init(const epd_ssd16xx_config_t *cfg);
 uint8_t epd_ssd16xx_read_temp(const epd_ssd16xx_config_t *cfg);
-uint8_t epd_ssd16xx_detect(const epd_ssd16xx_config_t *cfg);
 void epd_ssd16xx_set_sleep(void);
 
 // Display helpers
