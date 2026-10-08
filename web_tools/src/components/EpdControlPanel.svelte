@@ -161,13 +161,13 @@
 					class="btn btn-secondary"
 					onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(1))}
 					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-					>1: Default</button
+					>1: Clock</button
 				>
 				<button
 					class="btn btn-accent"
 					onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}
 					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-					>2: Time + Date</button
+					>2: Dashboard</button
 				>
 			</div>
 			<div class="flex flex-wrap gap-3">

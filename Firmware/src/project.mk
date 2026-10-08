@@ -11,6 +11,8 @@ $(OUT_PATH)/image_store.o \
 $(OUT_PATH)/etime.o \
 $(OUT_PATH)/epd_spi.o \
 $(OUT_PATH)/epd.o \
+$(OUT_PATH)/epd_canvas.o \
+$(OUT_PATH)/epd_scenes.o \
 $(OUT_PATH)/epd_uc8151c.o \
 $(OUT_PATH)/epd_ssd16xx.o \
 $(OUT_PATH)/epd_bw_213.o \
@@ -22,7 +24,6 @@ $(OUT_PATH)/led.o \
 $(OUT_PATH)/uart.o \
 $(OUT_PATH)/nfc.o \
 $(OUT_PATH)/tiffg4.o \
-$(OUT_PATH)/one_bit_display.o \
 $(OUT_PATH)/main.o
 
 # Each subdirectory must supply rules for building sources it contributes

@@ -93,7 +93,7 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xE1)
 	{ // force set an EPD scene
-		if (payload_len < 2 || payload[1] > 3)
+		if (payload_len < 2 || payload[1] > EPD_SCENE_SLIDESHOW)
 			return;
 		set_EPD_scene(payload[1]);
 	}
@@ -203,7 +203,7 @@ _attribute_ram_code_ void cmd_parser(void *p)
 		case 0x02:
 			if (image_store_finalize())
 			{
-				set_EPD_scene(image_store_get_image_count() > 1 ? 3 : 0);
+				set_EPD_scene(image_store_get_image_count() > 1 ? EPD_SCENE_SLIDESHOW : EPD_SCENE_IMAGE);
 				notify_rxtx_status(0xE5, 0x02, 0x01);
 			}
 			else
@@ -214,7 +214,7 @@ _attribute_ram_code_ void cmd_parser(void *p)
 			break;
 		case 0x03:
 			image_store_clear();
-			set_EPD_scene(2); // return to default clock scene
+			set_EPD_scene(EPD_SCENE_DASHBOARD);
 			ble_set_connection_speed(200);
 			notify_rxtx_status(0xE5, 0x03, 0x01);
 			break;
