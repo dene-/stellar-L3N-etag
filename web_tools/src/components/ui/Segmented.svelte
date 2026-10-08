@@ -21,7 +21,7 @@
 			role="radio"
 			aria-checked={option.value === value}
 			{disabled}
-			class="min-h-9 flex-1 rounded-full px-3 text-sm whitespace-nowrap text-soft transition-colors not-aria-checked:hover:not-disabled:bg-fg/10 not-aria-checked:hover:not-disabled:text-fg aria-checked:bg-fg aria-checked:text-ink aria-checked:hover:not-disabled:bg-fg/85"
+			class="min-h-9 flex-1 rounded-full px-3 text-sm whitespace-nowrap text-soft transition-colors not-aria-checked:hover:not-disabled:bg-fg/10 not-aria-checked:hover:not-disabled:text-fg aria-checked:bg-fg aria-checked:text-ink aria-checked:hover:not-disabled:bg-fg/70"
 			onclick={() => onchange(option.value)}
 		>
 			{option.label}
