@@ -11,6 +11,7 @@ type DisplayModelInfo = {
 	width: number;
 	height: number;
 	hasRed: boolean;
+	hasYellow: boolean;
 };
 
 type StoredImageBuffers = {
@@ -21,13 +22,29 @@ type StoredImageBuffers = {
 
 // Heights are visible rows; the 2.13" controllers keep 128 rows per column (see canvas2bytes).
 export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
-	{ model: 0, name: 'Auto detect (2.9" or 2.13" BWR)', width: 250, height: 122, hasRed: true },
-	{ model: 1, name: 'BW213', width: 250, height: 122, hasRed: false },
-	{ model: 2, name: 'BWR213', width: 250, height: 122, hasRed: true },
-	{ model: 3, name: 'BWR154', width: 200, height: 200, hasRed: true },
-	{ model: 4, name: '213ICE', width: 212, height: 104, hasRed: false },
-	{ model: 5, name: 'BWR290 / BWR296', width: 296, height: 128, hasRed: true },
-	{ model: 6, name: 'BW290 / BW296', width: 296, height: 128, hasRed: false }
+	{
+		model: 0,
+		name: 'Auto detect (2.9" or 2.13" BWR)',
+		width: 250,
+		height: 122,
+		hasRed: true,
+		hasYellow: false
+	},
+	{ model: 1, name: 'BW213', width: 250, height: 122, hasRed: false, hasYellow: false },
+	{ model: 2, name: 'BWR213', width: 250, height: 122, hasRed: true, hasYellow: false },
+	{ model: 3, name: 'BWR154', width: 200, height: 200, hasRed: true, hasYellow: false },
+	{ model: 4, name: '213ICE', width: 212, height: 104, hasRed: false, hasYellow: false },
+	{ model: 5, name: 'BWR290 / BWR296', width: 296, height: 128, hasRed: true, hasYellow: false },
+	{ model: 6, name: 'BW290 / BW296', width: 296, height: 128, hasRed: false, hasYellow: false },
+	// Firmware v0.15.0 on; also switches the tag to the newer Hanshow board wiring.
+	{
+		model: 7,
+		name: 'BWRY213 (213Q-N, experimental)',
+		width: 250,
+		height: 122,
+		hasRed: true,
+		hasYellow: true
+	}
 ];
 
 // Scenes of the E1 command, see SCREEN_SCENE_* in Firmware/src/application/screen.h.
@@ -124,6 +141,7 @@ class BleConnectionStore {
 	displayWidth = $state(DEFAULT_DISPLAY_INFO.width);
 	displayHeight = $state(DEFAULT_DISPLAY_INFO.height);
 	displayHasRed = $state(DEFAULT_DISPLAY_INFO.hasRed);
+	displayHasYellow = $state(DEFAULT_DISPLAY_INFO.hasYellow);
 	fastRefreshEnabled = $state(false);
 	fastRefreshSupported = $state(false);
 	// Clock screens: minutes between new frames and whether refreshes end on the minute (E7). null
@@ -158,6 +176,7 @@ class BleConnectionStore {
 		this.displayWidth = info.width;
 		this.displayHeight = info.height;
 		this.displayHasRed = info.hasRed;
+		this.displayHasYellow = info.hasYellow;
 		this.displaySource = source;
 	}
 
@@ -174,6 +193,7 @@ class BleConnectionStore {
 		this.displayWidth = width || info.width;
 		this.displayHeight = height || info.height;
 		this.displayHasRed = info.hasRed;
+		this.displayHasYellow = info.hasYellow;
 		this.displaySource = source;
 	}
 

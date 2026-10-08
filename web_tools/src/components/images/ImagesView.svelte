@@ -7,7 +7,7 @@
 		revokePhotoUrls,
 		type PhotoItem
 	} from '#lib/photo-utils.ts';
-	import { renderAndBuildBuffers, renderPhotoToCanvas } from '#lib/rendering.ts';
+	import { renderAndBuildBuffers, renderPhotoToCanvas, type Palette } from '#lib/rendering.ts';
 	import { bleConnectionStore, SLIDESHOW_INTERVALS } from '../../stores/connectionStore.svelte';
 	import { logStore } from '../../stores/logStore.svelte';
 	import FileDrop from '../ui/FileDrop.svelte';
@@ -33,11 +33,22 @@
 	let selected = $state(0);
 	let algorithm = $state('Atkinson');
 	let serpentine = $state(false);
-	let paletteChoice = $state<'bw' | 'bwr' | null>(null); // null: follow the display
+	let paletteChoice = $state<Palette | null>(null); // null: follow the display
 	let intervalSeconds = $state(60);
 	let canvas: HTMLCanvasElement | undefined = $state();
 
-	let palette = $derived(store.displayHasRed ? (paletteChoice ?? 'bwr') : 'bw');
+	let paletteOptions = $derived<{ value: Palette; label: string }[]>([
+		{ value: 'bw', label: 'Black & white' },
+		{ value: 'bwr', label: '+ Red' },
+		...(store.displayHasYellow ? [{ value: 'bwry' as const, label: '+ Red & yellow' }] : [])
+	]);
+	// The richest palette the display has, unless another one it has was chosen.
+	let palette = $derived.by((): Palette => {
+		if (!store.displayHasRed) return 'bw';
+		if (paletteChoice && paletteOptions.some((option) => option.value === paletteChoice))
+			return paletteChoice;
+		return store.displayHasYellow ? 'bwry' : 'bwr';
+	});
 	let maxImages = $derived(computeMaxImageCount(store.displayWidth, store.displayHeight));
 	let photo = $derived(photos[selected]);
 	let options = $derived({ mode: `${palette}_${algorithm}`, serpentine });
@@ -227,10 +238,7 @@
 			<span class="eyebrow">Colors</span>
 			<Segmented
 				label="Colors"
-				options={[
-					{ value: 'bw', label: 'Black & white' },
-					{ value: 'bwr', label: '+ Red' }
-				]}
+				options={paletteOptions}
 				value={palette}
 				disabled={!store.displayHasRed}
 				onchange={(value) => (paletteChoice = value)}

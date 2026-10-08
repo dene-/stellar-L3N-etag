@@ -31,21 +31,32 @@ _attribute_ram_code_ void EPD_init(void)
     gpio_set_output_en(EPD_MOSI, 1);
     gpio_setup_up_down_resistor(EPD_MOSI, PM_PIN_PULLUP_1M);
 
-    gpio_set_output_en(EPD_ENABLE, 0);
-    gpio_set_input_en(EPD_ENABLE, 1);
-    gpio_setup_up_down_resistor(EPD_ENABLE, PM_PIN_PULLUP_1M);
+    if (board->epd_enable_driven)
+    {
+        gpio_set_func(EPD_ENABLE, AS_GPIO);
+        gpio_set_output_en(EPD_ENABLE, 1);
+        gpio_set_input_en(EPD_ENABLE, 0);
+    }
+    else
+    {
+        gpio_set_output_en(EPD_ENABLE, 0);
+        gpio_set_input_en(EPD_ENABLE, 1);
+        gpio_setup_up_down_resistor(EPD_ENABLE, PM_PIN_PULLUP_1M);
+    }
 }
 
 _attribute_ram_code_ void EPD_SPI_Write(unsigned char value)
 {
+    const GPIO_PinTypeDef clk = EPD_CLK;
+    const GPIO_PinTypeDef mosi = EPD_MOSI;
     unsigned char i;
 
     for (i = 0; i < 8; i++)
     {
-        gpio_write(EPD_CLK, 0);
-        gpio_write(EPD_MOSI, (value & 0x80) ? 1 : 0);
+        gpio_write(clk, 0);
+        gpio_write(mosi, (value & 0x80) ? 1 : 0);
         value <<= 1;
-        gpio_write(EPD_CLK, 1);
+        gpio_write(clk, 1);
     }
 }
 

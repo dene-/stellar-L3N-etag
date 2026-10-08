@@ -1,4 +1,10 @@
-import { bwPalette, bwrPalette, canvas2bytes, ditheringCanvasByPalette } from '#lib/utils.ts';
+import {
+	bwPalette,
+	bwrPalette,
+	bwryPalette,
+	canvas2bytes,
+	ditheringCanvasByPalette
+} from '#lib/utils.ts';
 import {
 	getContainSize,
 	getCoverCropRect,
@@ -10,8 +16,13 @@ import pica from 'pica';
 
 const imageResizer = pica();
 
+// Colours a picture is reduced to; 'bwry' only for four-colour panels.
+export type Palette = 'bw' | 'bwr' | 'bwry';
+
+const PALETTES: Record<Palette, number[][]> = { bw: bwPalette, bwr: bwrPalette, bwry: bwryPalette };
+
 export type DitheringOptions = {
-	mode: string;
+	mode: string; // `${Palette}_${dithering kernel}`
 	serpentine: boolean;
 };
 
@@ -66,12 +77,16 @@ async function applyDitheringToCanvas(
 
 	ctx.putImageData(original, 0, 0);
 
-	const isBwr = dithering.mode.startsWith('bwr_');
-	const kern = dithering.mode.split('_')[1] || 'Atkinson';
+	const [palette, kern] = dithering.mode.split('_');
 
-	await ditheringCanvasByPalette(targetCanvas, isBwr ? bwrPalette : bwPalette, kern, {
-		dithSerp: dithering.serpentine
-	});
+	await ditheringCanvasByPalette(
+		targetCanvas,
+		PALETTES[palette as Palette] ?? bwPalette,
+		kern || 'Atkinson',
+		{
+			dithSerp: dithering.serpentine
+		}
+	);
 }
 
 export async function renderPhotoToCanvas(

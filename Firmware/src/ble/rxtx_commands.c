@@ -187,7 +187,7 @@ static void image_upload(const uint8_t *payload, uint16_t length)
 }
 
 // E6 00|01: disable/enable fast refresh (persisted); E6 AA: query.
-// Replies E6 <enabled> <supported> (every panel supports partial refresh).
+// Replies E6 <enabled> <supported>; panels without partial refresh (BWRY213) don't support it.
 static void fast_refresh(const uint8_t *payload, uint16_t length)
 {
 	uint8_t reply[3];
@@ -199,7 +199,7 @@ static void fast_refresh(const uint8_t *payload, uint16_t length)
 
 	reply[0] = 0xE6;
 	reply[1] = device_settings_fast_refresh_enabled();
-	reply[2] = 1;
+	reply[2] = display_panel()->has_partial;
 	notify(reply, sizeof(reply));
 }
 

@@ -22,6 +22,7 @@ extern int fake_read_temperature_calls;
 extern int fake_refresh_calls;
 extern int fake_sleep_calls;
 extern uint8_t fake_sleep_model; // model of the last sleep
+extern uint8_t fake_selected_model; // last epd_panel_select (board wiring)
 // Arguments of the last refresh.
 extern uint8_t fake_refresh_model;
 extern uint16_t fake_refresh_size;

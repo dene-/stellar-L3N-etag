@@ -1,8 +1,9 @@
-// Pure domain rules: panel table, refresh policy, slideshow, calendar, time zone, clock calibration,
-// clock schedule, firmware image, temperature, period, battery, device name.
+// Pure domain rules: panel table, refresh policy, four-colour packing, slideshow, calendar, time zone,
+// clock calibration, clock schedule, firmware image, temperature, period, battery, device name.
 #include <string.h>
 #include "check.h"
 #include "domain/battery.h"
+#include "domain/bwry.h"
 #include "domain/calendar.h"
 #include "domain/clock_calibration.h"
 #include "domain/clock_schedule.h"
@@ -21,10 +22,12 @@ static void test_panel(void)
     {
         uint8_t model;
         uint16_t width, height;
-        uint8_t has_red;
+        uint8_t has_red, has_partial;
     } expected[] = {
-        {PANEL_MODEL_BW213, 250, 122, 0},     {PANEL_MODEL_BWR213, 250, 122, 1}, {PANEL_MODEL_BWR154, 200, 200, 1},
-        {PANEL_MODEL_BW213_ICE, 212, 104, 0}, {PANEL_MODEL_BWR296, 296, 128, 1}, {PANEL_MODEL_BW296, 296, 128, 0},
+        {PANEL_MODEL_BW213, 250, 122, 0, 1},     {PANEL_MODEL_BWR213, 250, 122, 1, 1},
+        {PANEL_MODEL_BWR154, 200, 200, 1, 1},    {PANEL_MODEL_BW213_ICE, 212, 104, 0, 1},
+        {PANEL_MODEL_BWR296, 296, 128, 1, 1},    {PANEL_MODEL_BW296, 296, 128, 0, 1},
+        {PANEL_MODEL_BWRY213, 250, 122, 1, 0},
     };
     unsigned i;
 
@@ -42,6 +45,7 @@ static void test_panel(void)
         CHECK_EQ(panel->width, expected[i].width);
         CHECK_EQ(panel->height, expected[i].height);
         CHECK_EQ(panel->has_red, expected[i].has_red);
+        CHECK_EQ(panel->has_partial, expected[i].has_partial);
         CHECK(panel_plane_bytes(panel) <= PANEL_MAX_PLANE_BYTES);
     }
     CHECK_EQ(panel_plane_bytes(panel_find(PANEL_MODEL_BWR154)), PANEL_MAX_PLANE_BYTES);
@@ -60,30 +64,30 @@ static void test_refresh_policy(void)
     memset(black, 0xFF, SIZE);
     memset(red, 0x00, SIZE);
 
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_SKIP);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_SKIP);
 
     black[3] = 0x00;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_PARTIAL);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_SKIP);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_PARTIAL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_SKIP);
 
     red[5] = 0x01;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_FULL);
 
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_SKIP);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_SKIP);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 0, 1), REFRESH_FULL);
 
     // The last full refresh reset the counter: FULL_INTERVAL partial refreshes, then a full one.
     for (i = 0; i < REFRESH_POLICY_FULL_INTERVAL; i++)
     {
         black[0] = (uint8_t)i;
-        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_PARTIAL);
+        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_PARTIAL);
     }
     black[0] = 0xAA;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_FULL);
 
     refresh_policy_forget(&policy);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_FULL);
 }
 
 // Fast mode: only an unknown panel content, a red change or a requested redraw (scene switch) forces
@@ -100,40 +104,81 @@ static void test_refresh_policy_fast(void)
     memset(red, 0x00, SIZE);
 
     // The first frame (panel content unknown) is full even in fast mode.
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_FULL);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_SKIP);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 1), REFRESH_SKIP);
 
     // A requested redraw (scene switch, "Redraw") is full, changed or not: a partial refresh of a
     // whole new picture leaves the old one showing through.
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1, 1), REFRESH_FULL);
     black[3] = 0x00;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 1, 1, 1), REFRESH_FULL);
 
     // No periodic anti-ghosting full refresh: twice the interval of changes stays partial.
     for (i = 0; i < 2 * REFRESH_POLICY_FULL_INTERVAL; i++)
     {
         black[0] = (uint8_t)i;
-        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_PARTIAL);
+        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 1), REFRESH_PARTIAL);
     }
 
     // A partial refresh cannot draw red.
     red[5] = 0x01;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 1), REFRESH_FULL);
 
     // Unknown panel content is full in fast mode too.
     black[1] = 0x12;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_PARTIAL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 1), REFRESH_PARTIAL);
     refresh_policy_forget(&policy);
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 1), REFRESH_FULL);
 
     // The partial counter saturates: after many fast partials, leaving fast mode is due a full refresh.
     for (i = 0; i < 300; i++)
     {
         black[0] = (uint8_t)(i + 1);
-        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1), REFRESH_PARTIAL);
+        CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 1), REFRESH_PARTIAL);
     }
     black[0] = 0x77;
-    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 1), REFRESH_FULL);
+}
+
+// A panel without partial refresh gets a full one for every changed frame, fast mode or not, and
+// still skips unchanged ones.
+static void test_refresh_policy_no_partial(void)
+{
+    enum { SIZE = 64 };
+    refresh_policy_t policy;
+    uint8_t black[SIZE], red[SIZE];
+
+    memset(&policy, 0, sizeof(policy));
+    memset(black, 0xFF, SIZE);
+    memset(red, 0x00, SIZE);
+
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 0), REFRESH_SKIP);
+    black[3] = 0x00;
+    CHECK_EQ(refresh_policy_peek(&policy, black, red, SIZE, 0, 1, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 1, 0), REFRESH_FULL);
+    CHECK_EQ(refresh_policy_decide(&policy, black, red, SIZE, 0, 0, 0), REFRESH_SKIP);
+}
+
+static void test_bwry_pack_column(void)
+{
+    // Pixels 0-7: black, white, red, yellow, white, white, black, red.
+    const uint8_t black[2] = {0x5C, 0xFF}; // 0101 1100, then all white
+    const uint8_t red[2] = {0x31, 0x00};   // 0011 0001
+    uint8_t out[5];
+
+    memset(out, 0xEE, sizeof(out));
+    bwry_pack_column(black, red, 2, out, 5);
+    CHECK_EQ(out[0], (BWRY_BLACK << 6) | (BWRY_WHITE << 4) | (BWRY_RED << 2) | BWRY_YELLOW);
+    CHECK_EQ(out[1], (BWRY_WHITE << 6) | (BWRY_WHITE << 4) | (BWRY_BLACK << 2) | BWRY_RED);
+    CHECK_EQ(out[2], 0x55); // pixels 8-15, all white
+    CHECK_EQ(out[3], 0x55);
+    CHECK_EQ(out[4], 0x55); // past the column: white padding
+
+    // Without a red plane, set red bits are ignored.
+    bwry_pack_column(black, NULL, 2, out, 2);
+    CHECK_EQ(out[0], (BWRY_BLACK << 6) | (BWRY_WHITE << 4) | (BWRY_BLACK << 2) | BWRY_WHITE);
+    CHECK_EQ(out[1], (BWRY_WHITE << 6) | (BWRY_WHITE << 4) | (BWRY_BLACK << 2) | BWRY_BLACK);
 }
 
 static void test_slideshow(void)
@@ -355,6 +400,8 @@ int main(void)
     test_panel();
     test_refresh_policy();
     test_refresh_policy_fast();
+    test_refresh_policy_no_partial();
+    test_bwry_pack_column();
     test_slideshow();
     test_calendar();
     test_time_zone();

@@ -12,6 +12,7 @@
 #include "infrastructure/epd/epd_bwr_154.h"
 #include "infrastructure/epd/epd_bwr_213.h"
 #include "infrastructure/epd/epd_bwr_296.h"
+#include "infrastructure/epd/epd_bwry_213.h"
 
 #define BUSY_START_TIMEOUT_US 20000
 
@@ -31,7 +32,13 @@ static const epd_driver_t drivers[PANEL_MODEL_COUNT] = {
     [PANEL_MODEL_BW213_ICE] = {0, EPD_BW_213_ice_read_temp, EPD_BW_213_ice_Display, EPD_BW_213_ice_set_sleep},
     [PANEL_MODEL_BWR296] = {0, EPD_BWR_296_read_temp, EPD_BWR_296_Display, EPD_BWR_296_set_sleep},
     [PANEL_MODEL_BW296] = {0, EPD_BWR_296_read_temp, EPD_BWR_296_Display, EPD_BWR_296_set_sleep},
+    [PANEL_MODEL_BWRY213] = {1, EPD_BWRY_213_read_temp, EPD_BWRY_213_Display, EPD_BWRY_213_set_sleep},
 };
+
+void epd_panel_select(uint8_t model)
+{
+    board_select_for_panel(model);
+}
 
 // Powers the panel and pulses the controller's hardware reset.
 _attribute_ram_code_ static void power_up_and_reset(uint16_t settle_ms)
@@ -50,7 +57,7 @@ _attribute_ram_code_ static void power_up_and_reset(uint16_t settle_ms)
 // No commands are sent: command probes are unsafe here, e.g. the SSD "SW reset" 0x12 starts a
 // refresh on a UC8151C, and the SSD1680 has no LUT read-back. The family maps to this firmware's
 // tags: SSD16xx -> 2.9" BWR296 (L3N, 290R-N), UC8151 -> 2.13" BWR213 (213R-N). Other panels must
-// be selected explicitly (E0 <model>).
+// be selected explicitly (E0 <model>); this always runs with the Stellar wiring.
 _attribute_ram_code_ uint8_t epd_panel_detect(void)
 {
     uint8_t idle_high = 0;

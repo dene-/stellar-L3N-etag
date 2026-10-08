@@ -15,6 +15,13 @@ export const bwPalette: number[][] = [
 	[255, 255, 255]
 ];
 
+export const bwryPalette: number[][] = [
+	[0, 0, 0],
+	[255, 255, 255],
+	[255, 0, 0],
+	[255, 255, 0]
+];
+
 export function hexToBytes(hex: string): Uint8Array {
 	const clean = hex.replace(/\s|0x|,/gi, '');
 	if (clean.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(clean)) {
@@ -48,6 +55,7 @@ export function decimalToHex(d: number, padding: number = 2): string {
 // Packs the canvas into a panel plane: columns from the rightmost to the leftmost, each column
 // ceil(height / 8) bytes with the top pixel in the MSB (see Firmware/src/domain/epd_canvas.h). Rows
 // past the canvas height pad each column to whole bytes: white in the black plane, none in red.
+// Yellow, for four-colour panels, is set in both planes (Firmware/src/domain/bwry.h).
 export function canvas2bytes(canvas: HTMLCanvasElement, type: 'bw' | 'bwr' = 'bw'): Uint8Array {
 	const ctx = canvas.getContext('2d', { willReadFrequently: true });
 	if (!ctx) return new Uint8Array(0);
@@ -65,10 +73,12 @@ export function canvas2bytes(canvas: HTMLCanvasElement, type: 'bw' | 'bwr' = 'bw
 				let bit = padBit;
 				if (y < height) {
 					const index = (width * y + x) * 4;
+					const [r, g, b] = [data[index], data[index + 1], data[index + 2]];
+					const yellow = r > 0 && g > 0 && b === 0;
 					bit =
 						type === 'bwr'
-							? Number(data[index] > 0 && data[index + 1] === 0 && data[index + 2] === 0)
-							: Number(data[index] > 0 && data[index + 1] > 0 && data[index + 2] > 0);
+							? Number((r > 0 && g === 0 && b === 0) || yellow)
+							: Number((r > 0 && g > 0 && b > 0) || yellow);
 				}
 				byte = (byte << 1) | bit;
 			}

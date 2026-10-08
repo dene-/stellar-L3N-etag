@@ -23,6 +23,7 @@ int fake_read_temperature_calls;
 int fake_refresh_calls;
 int fake_sleep_calls;
 uint8_t fake_sleep_model;
+uint8_t fake_selected_model;
 uint8_t fake_refresh_model;
 uint16_t fake_refresh_size;
 uint8_t fake_refresh_full;
@@ -73,6 +74,7 @@ void fakes_reset(void)
     fake_panel_idle = 0;
     fake_detect_calls = fake_read_temperature_calls = fake_refresh_calls = fake_sleep_calls = 0;
     fake_sleep_model = 0;
+    fake_selected_model = 0xFF;
     fake_refresh_model = 0;
     fake_refresh_size = 0;
     fake_refresh_full = 0;
@@ -132,6 +134,11 @@ void wall_clock_set_trim(int16_t trim)
 }
 
 // epd_panel
+void epd_panel_select(uint8_t model)
+{
+    fake_selected_model = model;
+}
+
 uint8_t epd_panel_detect(void)
 {
     fake_detect_calls++;

@@ -9,6 +9,7 @@ OUT_DIR += /domain /application /infrastructure /infrastructure/epd /infrastruct
 OBJS += \
 $(OUT_PATH)/main.o \
 $(OUT_PATH)/domain/battery.o \
+$(OUT_PATH)/domain/bwry.o \
 $(OUT_PATH)/domain/calendar.o \
 $(OUT_PATH)/domain/clock_calibration.o \
 $(OUT_PATH)/domain/clock_schedule.o \
@@ -30,6 +31,7 @@ $(OUT_PATH)/application/screen.o \
 $(OUT_PATH)/application/status_led.o \
 $(OUT_PATH)/application/telemetry.o \
 $(OUT_PATH)/infrastructure/battery.o \
+$(OUT_PATH)/infrastructure/board.o \
 $(OUT_PATH)/infrastructure/wall_clock.o \
 $(OUT_PATH)/infrastructure/i2c.o \
 $(OUT_PATH)/infrastructure/led.o \
@@ -44,6 +46,7 @@ $(OUT_PATH)/infrastructure/epd/epd_bw_213_ice.o \
 $(OUT_PATH)/infrastructure/epd/epd_bwr_154.o \
 $(OUT_PATH)/infrastructure/epd/epd_bwr_213.o \
 $(OUT_PATH)/infrastructure/epd/epd_bwr_296.o \
+$(OUT_PATH)/infrastructure/epd/epd_bwry_213.o \
 $(OUT_PATH)/infrastructure/storage/image_store.o \
 $(OUT_PATH)/infrastructure/storage/settings_flash.o \
 $(OUT_PATH)/ble/ble.o \

@@ -34,7 +34,10 @@ static void remember_temperature(int16_t value)
 static uint8_t resolved_model(void)
 {
     if (model == PANEL_MODEL_AUTO)
+    {
         model = epd_panel_detect();
+        epd_panel_select(model);
+    }
     return model;
 }
 
@@ -54,6 +57,8 @@ _attribute_ram_code_ static void show(uint8_t *black, uint8_t *red, uint16_t siz
     // Black/white panels sharing a BWR driver must get a blank red RAM, whatever was drawn.
     if (!panel->has_red)
         red = 0;
+    if (!panel->has_partial)
+        full = 1;
     refresh_started_ms = wall_clock_uptime_ms();
     remember_temperature(epd_panel_refresh(panel->model, black, red, size, full));
     refreshing = 1;
@@ -64,6 +69,7 @@ _attribute_ram_code_ static void show(uint8_t *black, uint8_t *red, uint16_t siz
 void display_init(uint8_t stored_model)
 {
     model = panel_find(stored_model) ? stored_model : PANEL_MODEL_AUTO;
+    epd_panel_select(model);
 }
 
 void display_select_model(uint8_t new_model)
@@ -118,8 +124,10 @@ _attribute_ram_code_ void display_show_pattern(uint8_t pattern)
 
 uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast)
 {
-    uint16_t size = panel_plane_bytes(display_panel());
-    refresh_kind_t kind = refresh_policy_decide(&refresh_policy, black_plane, red_plane, size, redraw, fast);
+    const panel_t *panel = display_panel();
+    uint16_t size = panel_plane_bytes(panel);
+    refresh_kind_t kind =
+        refresh_policy_decide(&refresh_policy, black_plane, red_plane, size, redraw, fast, panel->has_partial);
 
     if (kind == REFRESH_SKIP)
         return 0;
@@ -129,7 +137,10 @@ uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast)
 
 refresh_kind_t display_plan_refresh(uint8_t redraw, uint8_t fast)
 {
-    return refresh_policy_peek(&refresh_policy, black_plane, red_plane, panel_plane_bytes(display_panel()), redraw, fast);
+    const panel_t *panel = display_panel();
+
+    return refresh_policy_peek(&refresh_policy, black_plane, red_plane, panel_plane_bytes(panel), redraw, fast,
+                               panel->has_partial);
 }
 
 uint32_t display_refresh_duration_ms(refresh_kind_t kind)

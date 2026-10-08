@@ -275,6 +275,37 @@ static void test_select_model_forgets_shown_frame(void)
     CHECK_EQ(fake_refresh_full, 1);
 }
 
+// The board wiring follows the panel model, including the one auto-detection finds.
+static void test_model_selects_board_wiring(void)
+{
+    setup(PANEL_MODEL_BWRY213);
+    CHECK_EQ(fake_selected_model, PANEL_MODEL_BWRY213);
+
+    display_init(PANEL_MODEL_AUTO);
+    CHECK_EQ(fake_selected_model, PANEL_MODEL_AUTO);
+    fake_detect_model = PANEL_MODEL_BWR213;
+    display_panel();
+    CHECK_EQ(fake_selected_model, PANEL_MODEL_BWR213);
+}
+
+// The four-colour panel has no partial refresh: every refresh is full, whatever was asked.
+static void test_panel_without_partial_refreshes_in_full(void)
+{
+    setup(PANEL_MODEL_BWRY213);
+    display_refresh(250 * 16, 0);
+    CHECK_EQ(fake_refresh_full, 1);
+    CHECK(!fake_refresh_red_null);
+    finish_refresh();
+
+    display_fill(0xFF, 0x00);
+    CHECK_EQ(display_refresh_if_changed(0, 1), 1);
+    finish_refresh();
+    display_plane(DISPLAY_PLANE_BLACK)[0] = 0x00;
+    CHECK_EQ(display_plan_refresh(0, 1), REFRESH_FULL);
+    CHECK_EQ(display_refresh_if_changed(0, 1), 1);
+    CHECK_EQ(fake_refresh_full, 1);
+}
+
 int main(void)
 {
     test_detects_once();
@@ -290,5 +321,7 @@ int main(void)
     test_select_model_is_stored_in_settings();
     test_select_model_during_refresh_sleeps_old_panel();
     test_select_model_forgets_shown_frame();
+    test_model_selects_board_wiring();
+    test_panel_without_partial_refreshes_in_full();
     return check_report();
 }

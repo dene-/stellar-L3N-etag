@@ -4,6 +4,8 @@
 // The e-paper panel hardware (infrastructure/epd). model is a resolved PANEL_MODEL_* id, never AUTO.
 // Each call powers the controller up as needed; refresh leaves it powered until epd_panel_sleep().
 
+// Sets up the board wiring of the panel model (PANEL_MODEL_AUTO: the wiring auto-detection uses).
+void epd_panel_select(uint8_t model);
 // Reads the controller family and returns the model this firmware assumes for it
 // (PANEL_MODEL_BWR296 for SSD16xx, PANEL_MODEL_BWR213 for UC8151).
 uint8_t epd_panel_detect(void);

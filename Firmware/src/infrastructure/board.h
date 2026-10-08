@@ -1,21 +1,48 @@
 #pragma once
+#include <stdint.h>
+#include "tl_common.h"
+#include "drivers.h"
 
-// GPIO wiring of the Stellar tags.
+// GPIO wiring. Hanshow uses two layouts for the panel and the LED; which one a tag has follows from
+// the panel model (board_select_for_panel()).
 
-#define LED_BLUE GPIO_PA7
-#define LED_RED GPIO_PD2
-#define LED_GREEN GPIO_PD3
+typedef struct
+{
+    GPIO_PinTypeDef epd_reset;
+    GPIO_PinTypeDef epd_dc;
+    GPIO_PinTypeDef epd_busy;
+    GPIO_PinTypeDef epd_cs;
+    GPIO_PinTypeDef epd_clk;
+    GPIO_PinTypeDef epd_mosi;
+    GPIO_PinTypeDef epd_enable; // panel power, active low
+    uint8_t epd_enable_driven;  // 0: left an input (not connected on the Stellar Pro 213R-N)
+    GPIO_PinTypeDef led_red;
+    GPIO_PinTypeDef led_green;
+    GPIO_PinTypeDef led_blue;
+} board_t;
 
+// The layout in use; the Stellar one until board_select_for_panel() picks another.
+extern const board_t *board;
+
+// Picks the layout for a PANEL_MODEL_* id (PANEL_MODEL_AUTO: the Stellar one) and sets up the LED
+// pins of the new layout.
+void board_select_for_panel(uint8_t model);
+
+#define LED_BLUE (board->led_blue)
+#define LED_RED (board->led_red)
+#define LED_GREEN (board->led_green)
+
+#define EPD_RESET (board->epd_reset)
+#define EPD_DC (board->epd_dc)
+#define EPD_BUSY (board->epd_busy)
+#define EPD_CS (board->epd_cs)
+#define EPD_CLK (board->epd_clk)
+#define EPD_MOSI (board->epd_mosi)
+#define EPD_ENABLE (board->epd_enable)
+
+// Shared by both layouts as far as known.
 #define RXD GPIO_PA0
 #define TXD GPIO_PB1
-
-#define EPD_RESET GPIO_PD4
-#define EPD_DC GPIO_PD7
-#define EPD_BUSY GPIO_PA1
-#define EPD_CS GPIO_PB4
-#define EPD_CLK GPIO_PB5
-#define EPD_MOSI GPIO_PB6
-#define EPD_ENABLE GPIO_PC5 // seems not connected on the Stellar Pro 213N
 
 #define NFC_SDA GPIO_PC0
 #define NFC_SCL GPIO_PC1
