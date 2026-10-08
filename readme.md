@@ -54,6 +54,21 @@ Firmware CRC32: 0xe62d501e
 
 Run `./build_docker.sh`, and wait for the output in `/Firmware` folder.
 
+### Firmware layout
+
+`Firmware/src` is layered; dependencies only point inwards:
+
+| Directory | Contains | May include |
+| --- | --- | --- |
+| `domain/` | Rules and rendering: panel catalog, refresh policy, slideshow schedule, calendar, scenes and canvas | `domain/` only, no SDK |
+| `application/` | Use cases: display session, scenes, image upload, settings, telemetry, status LED | `domain/`, its own `ports/` headers |
+| `application/ports/` | What the use cases need from hardware (panel, clock, image storage, settings storage, battery, LED, telemetry sink) | |
+| `infrastructure/` | SDK adapters implementing the ports: EPD drivers, flash storage, clock, LED, battery, NFC, UART | everything inwards + SDK |
+| `ble/` | GATT table and the RxTx, raw EPD and OTA services, translating writes into use cases | everything inwards + SDK |
+| `main.c` | Boot, wiring and the main loop | everything |
+
+`domain/` and `application/` build without the Telink SDK. `python3 tools/firmware_tests/run.py` compiles them with the host `cc` against fake ports and runs their tests.
+
 ### Bluetooth Connection and OTA Update
 
 - 1. You must disconnect the TTL TX line first, otherwise Bluetooth will not connect.
@@ -80,7 +95,7 @@ Switch scenes from the web page (Scene buttons) or with BLE command `E1 <scene>`
 
 Until the time is set over BLE, the clock scenes show `--:--` and "Set time via Bluetooth". Clock scenes redraw once a minute, skip the refresh when nothing changed, and use a full refresh whenever red content changes (date band, low battery).
 
-Scene code lives in `Firmware/src/epd_scenes.c` (layouts) and `epd_canvas.c` (drawing). Text uses the Spleen bitmap font, converted pixel for pixel by `tools/fonts/gen_gfx_fonts.py`. Preview layouts on your computer without flashing: `python3 tools/scene_preview/preview.py` (needs `cc` and Pillow). It writes one PNG per panel size, scene and state plus a `sheet.png` overview to your temp dir, and exits non-zero if any text or shape is clipped or overflows its box.
+Scene code lives in `Firmware/src/domain/epd_scenes.c` (layouts) and `epd_canvas.c` (drawing). Text uses the Spleen bitmap font, converted pixel for pixel by `tools/fonts/gen_gfx_fonts.py`. Preview layouts on your computer without flashing: `python3 tools/scene_preview/preview.py` (needs `cc` and Pillow). It writes one PNG per panel size, scene and state plus a `sheet.png` overview to your temp dir, and exits non-zero if any text or shape is clipped or overflows its box.
 
 ### Display models
 

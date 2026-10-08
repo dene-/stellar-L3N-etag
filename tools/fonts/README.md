@@ -1,8 +1,8 @@
 # Bitmap fonts
 
 `gen_gfx_fonts.py` converts glyphs of the [Spleen](https://github.com/fcambus/spleen) bitmap
-font (BDF) into Adafruit-GFX style headers in `Firmware/src/fonts/`, consumed by
-`epd_canvas_text` in `Firmware/src/epd_canvas.c`. Spleen is drawn for the pixel grid, and the
+font (BDF) into Adafruit-GFX style headers in `Firmware/src/domain/fonts/`, consumed by
+`epd_canvas_text` in `Firmware/src/domain/epd_canvas.c`. Spleen is drawn for the pixel grid, and the
 conversion is exact: glyphs are only cropped to their ink, so the panel shows the designed pixels.
 
 | Header | Source | Characters | Used for |

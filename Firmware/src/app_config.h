@@ -8,8 +8,6 @@ extern "C" {
 
 #define ADVERTISING_INTERVAL 1600
 
-#define RAM _attribute_data_retention_ // short version, this is needed to keep the values in ram after sleep
-
 #include "application/print/u_printf.h"
 enum{
 	CLOCK_SYS_CLOCK_1S = CLOCK_SYS_CLOCK_HZ,

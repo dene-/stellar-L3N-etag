@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include "epd_scenes.h"
+#include "domain/epd_scenes.h"
 
 #define MAX_PLANE (200 * 200 / 8)
 

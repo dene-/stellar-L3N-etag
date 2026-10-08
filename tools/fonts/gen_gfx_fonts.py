@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the tag's bitmap font headers (Firmware/src/fonts/) from the Spleen bitmap fonts.
+"""Generate the tag's bitmap font headers (Firmware/src/domain/fonts/) from the Spleen bitmap fonts.
 
 Spleen (https://github.com/fcambus/spleen) is a pixel-designed bitmap font; its BDF glyphs are
 converted bit for bit (only cropped to their ink), so the panel shows exactly the designed pixels.
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUT_DIR = REPO_ROOT / "Firmware" / "src" / "fonts"
+DEFAULT_OUT_DIR = REPO_ROOT / "Firmware" / "src" / "domain" / "fonts"
 CHECK_DIR = Path(tempfile.gettempdir()) / "gfx_font_check"
 
 SPLEEN_VERSION = "2.1.0"
@@ -315,7 +315,7 @@ def fetch_spleen():
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--bdf-dir", help="directory with the Spleen .bdf files (default: download the pinned release)")
-    parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="output directory (default: Firmware/src/fonts)")
+    parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="output directory (default: Firmware/src/domain/fonts)")
     parser.add_argument("--check", action="store_true", help=f"also write preview PNGs to {CHECK_DIR}")
     args = parser.parse_args(argv)
 

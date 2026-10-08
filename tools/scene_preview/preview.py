@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the tag's clock scenes on the host and save them as PNGs.
 
-Compiles Firmware/src/epd_canvas.c + epd_scenes.c with the host C compiler, renders every
+Compiles Firmware/src/domain/epd_canvas.c + epd_scenes.c with the host C compiler, renders every
 scene for a few panel sizes and device states, and writes upscaled PNGs (default
 /tmp/scene_preview). Needs a C compiler (cc) and Pillow.
 """
@@ -32,8 +32,8 @@ def main() -> int:
                 "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter",
                 "-funsigned-char", "-DEPD_CANVAS_COUNT_CLIPPED", "-I", SRC,
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "scene_preview.c"),
-                os.path.join(SRC, "epd_canvas.c"),
-                os.path.join(SRC, "epd_scenes.c"),
+                os.path.join(SRC, "domain", "epd_canvas.c"),
+                os.path.join(SRC, "domain", "epd_scenes.c"),
                 "-o", exe,
             ],
             check=True,

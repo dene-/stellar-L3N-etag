@@ -33,7 +33,7 @@ const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.mode
 // Assumed until the device reports its model (E2 AB) after connecting.
 const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(2)!;
 
-// OTA layout, mirrors OTA_BANK_START/OTA_MAX_SIZE in Firmware/src/ota.c. The last 256 byte
+// OTA layout, mirrors OTA_BANK_START/OTA_MAX_SIZE in Firmware/src/ble/ota_service.c. The last 256 byte
 // page of the bank is never written by the device, so the largest image is one page shorter.
 export const OTA_BANK_ADDRESS = 0x20000;
 const OTA_BANK_SIZE = 0x20000;
@@ -545,7 +545,7 @@ class BleConnectionStore {
 		}
 	}
 
-	// Must match ota_bank_checksum() in Firmware/src/ota.c: 16-bit byte sum over the whole
+	// Must match ota_bank_checksum() in Firmware/src/ble/ota_service.c: 16-bit byte sum over the whole
 	// bank, where everything past the end of the image is erased flash (0xFF).
 	private calculateCRC(data: Uint8Array): number {
 		let crc = 0;

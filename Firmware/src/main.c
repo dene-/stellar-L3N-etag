@@ -1,57 +1,104 @@
+// Composition root: boots the hardware, wires the BLE services to the use cases and runs the main loop.
 #include <stdint.h>
 #include "tl_common.h"
 #include "drivers.h"
 #include "stack/ble/ble.h"
-#include "vendor/common/user_config.h"
-#include "drivers/8258/gpio_8258.h"
-#include "app_config.h"
-#include "main.h"
-#include "app.h"
-#include "battery.h"
-#include "ble.h"
-#include "cmd_parser.h"
-#include "epd.h"
-#include "flash.h"
-#include "i2c.h"
-#include "led.h"
-#include "nfc.h"
-#include "ota.h"
-#include "uart.h"
+#include "vendor/common/blt_common.h"
+#include "application/device_settings.h"
+#include "application/display.h"
+#include "application/screen.h"
+#include "application/status_led.h"
+#include "application/telemetry.h"
+#include "ble/ble.h"
+#include "infrastructure/board.h"
+#include "infrastructure/i2c.h"
+#include "infrastructure/led.h"
+#include "infrastructure/nfc.h"
+#include "infrastructure/uart.h"
+#include "infrastructure/storage/image_store.h"
+#include "infrastructure/wall_clock.h"
+#include "sections.h"
 
 _attribute_ram_code_ __attribute__((optimize("-Os"))) void irq_handler(void)
 {
 	irq_blt_sdk_handler();
 }
 
-_attribute_ram_code_ int main (void)    //must run in ramcode
+// Runs once after power up (not after deep-retention wake-ups).
+_attribute_ram_code_ static void init_normal(void)
+{
+	random_generator_init(); // must
+	wall_clock_init();
+	ble_init();
+	device_settings_load();
+	display_init(device_settings_panel_model());
+	image_store_init();
+	init_nfc();
+}
+
+// Runs after every deep-retention wake-up; RAM-retained state is still valid.
+_attribute_ram_code_ static void init_after_deep_retention(void)
+{
+	blc_ll_initBasicMCU();
+	rf_set_power_level_index(RF_POWER_P3p01dBm);
+	blc_ll_recoverDeepRetention();
+}
+
+_attribute_ram_code_ static void main_loop(void)
+{
+	uint8_t connected;
+
+	blt_sdk_main_loop();
+	wall_clock_tick();
+
+	connected = ble_is_connected();
+	telemetry_update(connected);
+	screen_update(connected, ble_device_name());
+	status_led_update(connected);
+
+	if (display_poll())
+	{ // a refresh is running: sleep between BLE events only, and wake on the panel's BUSY pin
+		cpu_set_gpio_wakeup(EPD_BUSY, 1, 1);
+		bls_pm_setWakeupSource(PM_WAKEUP_PAD);
+		bls_pm_setSuspendMask(SUSPEND_ADV | SUSPEND_CONN);
+	}
+	else
+	{
+		bls_pm_setSuspendMask(SUSPEND_ADV | DEEPSLEEP_RETENTION_ADV | SUSPEND_CONN | DEEPSLEEP_RETENTION_CONN);
+	}
+}
+
+_attribute_ram_code_ int main(void) // must run in ramcode
 {
 	blc_pm_select_internal_32k_crystal();
 	cpu_wakeup_init();
-	int deepRetWakeUp = pm_is_MCU_deepRetentionWakeup();  //MCU deep retention wakeUp
+	int deepRetWakeUp = pm_is_MCU_deepRetentionWakeup(); // MCU deep retention wakeUp
 	rf_drv_init(RF_MODE_BLE_1M);
-	gpio_init( !deepRetWakeUp );  //analog resistance will keep available in deepSleep mode, so no need initialize again
+	gpio_init(!deepRetWakeUp); // analog resistance will keep available in deepSleep mode, so no need initialize again
 #if (CLOCK_SYS_CLOCK_HZ == 16000000)
 	clock_init(SYS_CLK_16M_Crystal);
 #elif (CLOCK_SYS_CLOCK_HZ == 24000000)
 	clock_init(SYS_CLK_24M_Crystal);
 #endif
 	blc_app_loadCustomizedParameters();
-	
-    init_led();
+
+	init_led();
 	init_uart();
 	init_i2c();
-		
-	if( deepRetWakeUp ){
-		user_init_deepRetn ();
+
+	if (deepRetWakeUp)
+	{
+		init_after_deep_retention();
 		uart_puts("--- Wake from deep\r\n");
 	}
-	else{
+	else
+	{
 		uart_puts("\r\n\r\n --- Booting normal--- \r\n");
-		user_init_normal ();
-	}	
-    irq_enable();
-	while (1) {
-		main_loop ();
+		init_normal();
+	}
+	irq_enable();
+	while (1)
+	{
+		main_loop();
 	}
 }
-

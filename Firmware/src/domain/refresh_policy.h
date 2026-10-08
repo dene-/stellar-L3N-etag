@@ -1,0 +1,29 @@
+#pragma once
+#include <stdint.h>
+
+// Decides how to show a periodically redrawn frame (the clock scenes): skip it when it matches the
+// frame on the panel, use a full refresh when red content changed (a partial refresh cannot draw red)
+// or after REFRESH_POLICY_FULL_INTERVAL partial ones (against ghosting), and partial otherwise.
+#define REFRESH_POLICY_FULL_INTERVAL 10
+
+typedef enum
+{
+    REFRESH_SKIP = 0,
+    REFRESH_PARTIAL,
+    REFRESH_FULL,
+} refresh_kind_t;
+
+typedef struct
+{
+    uint8_t shown_valid; // 0 when the panel shows something this policy did not decide on
+    uint32_t black_hash;
+    uint32_t red_hash;
+    uint8_t partial_count;
+} refresh_policy_t;
+
+// Decides for the frame in black/red (size bytes each) and, unless skipped, records it as shown.
+// force_full redraws even an unchanged frame with a full refresh.
+refresh_kind_t refresh_policy_decide(refresh_policy_t *policy, const uint8_t *black, const uint8_t *red, uint16_t size,
+                                     uint8_t force_full);
+// Something else was drawn on the panel; the next frame gets a full refresh.
+void refresh_policy_forget(refresh_policy_t *policy);
