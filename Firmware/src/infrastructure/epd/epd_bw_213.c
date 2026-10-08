@@ -5,7 +5,7 @@
 #include "infrastructure/epd/epd_bw_213.h"
 #include "drivers.h"
 
-// UC8151C EPD Controller — 2.13" B&W (250x128)
+// UC8151C EPD Controller — 2.13" B&W (250x122 visible, 128 rows of RAM per column)
 
 #define lut_bw_213_refresh_time 6
 static const uint8_t lut_bw_213_20_part[] =

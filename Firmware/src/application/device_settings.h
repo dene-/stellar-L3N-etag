@@ -7,6 +7,8 @@ typedef struct
     uint8_t fast_refresh_enabled; // clock scenes skip the optional full refreshes, see domain/refresh_policy.h
     uint8_t led_flashing_enabled; // status LED heartbeat and animation allowed
     int16_t clock_trim;           // wall clock correction, see domain/clock_calibration.h
+    uint8_t clock_interval;       // minutes between clock scene frames, see domain/clock_schedule.h
+    uint8_t clock_sync;           // start clock refreshes early so they finish as the minute changes
 } device_settings_t;
 
 // Loads the stored settings, or stores the defaults when there are none. Settings the stored record
@@ -26,3 +28,8 @@ uint8_t device_settings_led_flashing_enabled(void);
 void device_settings_set_led_flashing_enabled(uint8_t enabled);
 int16_t device_settings_clock_trim(void);
 void device_settings_set_clock_trim(int16_t trim);
+uint8_t device_settings_clock_interval(void);
+// Ignores intervals clock_schedule_valid() rejects.
+void device_settings_set_clock_interval(uint8_t minutes);
+uint8_t device_settings_clock_sync(void);
+void device_settings_set_clock_sync(uint8_t enabled);

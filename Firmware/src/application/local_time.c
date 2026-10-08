@@ -56,15 +56,22 @@ void local_time_sync(uint32_t utc_seconds, uint16_t utc_ms, const time_zone_t *n
     synced_ms = utc_ms;
 }
 
+uint32_t local_time_seconds(uint16_t *ms)
+{
+    uint32_t utc = wall_clock_utc(ms);
+
+    return utc ? utc + (uint32_t)time_zone_offset_seconds(&zone, utc) : 0;
+}
+
 struct date_time local_time_date(void)
 {
-    uint32_t utc = wall_clock_utc(NULL);
+    uint32_t local = local_time_seconds(NULL);
     struct date_time date;
 
-    if (!utc)
+    if (!local)
     {
         memset(&date, 0, sizeof(date));
         return date;
     }
-    return calendar_date(utc + (uint32_t)time_zone_offset_seconds(&zone, utc));
+    return calendar_date(local);
 }

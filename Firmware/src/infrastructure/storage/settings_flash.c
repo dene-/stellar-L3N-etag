@@ -20,11 +20,15 @@ typedef struct __attribute__((packed))
 	uint8_t reserved_b[4];
 	uint8_t panel_model;
 	int16_t clock_trim;
+	uint8_t clock_interval;
+	uint8_t clock_sync;
 	uint8_t crc; // XOR of the len - 1 bytes before it; must stay last
 } settings_record_t;
 
+// Record lengths written by earlier firmware.
 #define RECORD_LEN_BEFORE_CLOCK_TRIM 21
-typedef char settings_record_size_check[(sizeof(settings_record_t) == 23) ? 1 : -1];
+#define RECORD_LEN_BEFORE_CLOCK_INTERVAL 23
+typedef char settings_record_size_check[(sizeof(settings_record_t) == 25) ? 1 : -1];
 
 static RAM settings_record_t record;
 
@@ -45,7 +49,8 @@ uint8_t settings_storage_load(device_settings_t *settings)
 
 	flash_read_page(SETTINGS_ADDR, sizeof(record), (uint8_t *)&record);
 	if (record.magic != SETTINGS_MAGIC ||
-		(record.len != sizeof(record) && record.len != RECORD_LEN_BEFORE_CLOCK_TRIM) ||
+		(record.len != sizeof(record) && record.len != RECORD_LEN_BEFORE_CLOCK_INTERVAL &&
+		 record.len != RECORD_LEN_BEFORE_CLOCK_TRIM) ||
 		bytes[record.len - 1] != record_crc(record.len))
 	{
 		memset(&record, 0, sizeof(record));
@@ -55,8 +60,13 @@ uint8_t settings_storage_load(device_settings_t *settings)
 	settings->panel_model = record.panel_model;
 	settings->fast_refresh_enabled = record.fast_refresh_enabled;
 	settings->led_flashing_enabled = record.led_flashing_enabled;
-	if (record.len >= sizeof(record))
+	if (record.len >= RECORD_LEN_BEFORE_CLOCK_INTERVAL)
 		settings->clock_trim = record.clock_trim;
+	if (record.len >= sizeof(record))
+	{
+		settings->clock_interval = record.clock_interval;
+		settings->clock_sync = record.clock_sync;
+	}
 	return 1;
 }
 
@@ -68,6 +78,8 @@ void settings_storage_save(const device_settings_t *settings)
 	record.fast_refresh_enabled = settings->fast_refresh_enabled;
 	record.led_flashing_enabled = settings->led_flashing_enabled;
 	record.clock_trim = settings->clock_trim;
+	record.clock_interval = settings->clock_interval;
+	record.clock_sync = settings->clock_sync;
 	record.crc = record_crc(sizeof(record));
 	flash_erase_sector(SETTINGS_ADDR);
 	flash_write_page(SETTINGS_ADDR, sizeof(record), (uint8_t *)&record);

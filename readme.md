@@ -16,7 +16,7 @@ The screens above are rendered by `tools/scene_preview` from the same code that 
 | Tag | Panel | Tested on hardware |
 | --- | --- | --- |
 | Stellar L3N@ 2.9" | BWR296, 296x128, black/white/red | yes |
-| Stellar Pro 213R-N | BWR213, 250x128, black/white/red | yes |
+| Stellar Pro 213R-N | BWR213, 250x122, black/white/red | yes |
 | Other Stellar tags with these panels | see [Display models](#display-models) | no |
 
 `Compatible_models/` has photos of other Stellar variants.
@@ -29,8 +29,9 @@ flasher also needs Web Serial). To run it locally, with Node 22.17 or later:
 
 It has three pages:
 
-- **Device**: what the tag shows, its temperature and battery, the display model, fast refresh and
-  the status light. Connecting also sets the tag's clock and time zone.
+- **Device**: what the tag shows, its temperature and battery, the display model, how often and
+  when the clock refreshes, fast refresh and the status light. Connecting also sets the tag's clock
+  and time zone.
 - **Images**: converts pictures for the panel with a choice of dithering, and sends one picture or
   a slideshow. Pictures can be prepared before connecting.
 - **Firmware**: updates over Bluetooth, or installs over a USB serial adapter.
@@ -107,10 +108,18 @@ UUID 0x181A).
 | 2 | Dashboard (default): tag name, time, temperature, battery voltage, date |
 | 3 | Slideshow of the uploaded images |
 
-The clock scenes redraw once a minute and only refresh the panel when the picture changed. Changes
-in black use a partial refresh; changes in red (the date band, a low battery) use a full one, and
-every 10th refresh is full to clear ghosting. "Fast refresh" in the web tool skips those periodic
-full refreshes. Images are always shown with a full refresh, since a partial one cannot draw red.
+The clock scenes show a new time every minute, or every 2 to 60 minutes as set in the web tool
+("Clock refresh"), counted from midnight: every 15 minutes means :00, :15, :30 and :45. The panel
+is only refreshed when the picture changed. Changes in black use a partial refresh; changes in red
+(the date band, a low battery) use a full one, and every 10th refresh is full to clear ghosting.
+"Fast refresh" in the web tool skips those periodic full refreshes. Images are always shown with a
+full refresh, since a partial one cannot draw red.
+
+A refresh takes from about a second (partial) to 15 or more seconds (full, with red), so by default
+the new time appears that long after the minute changed. With "Finish on the minute" the tag draws
+the next time ahead and starts its refresh early by as long as the last refresh of that kind took
+(plus up to a second, as it wakes about once a second), so the new time is on the screen as the
+minute changes. Until a partial and a full refresh have been measured it assumes 3 and 20 seconds.
 
 Uploaded images are stored in flash: at most 23 and at most 212 KiB, which is 22 images on a 2.9"
 panel and 21 on a 1.54" one. Images uploaded for one panel size are not shown on another.
@@ -125,8 +134,8 @@ uploaded again.
 | `E0` model | Panel | Resolution | Colors | Controller |
 | --- | --- | --- | --- | --- |
 | 0 | Auto-detect (default) | | | |
-| 1 | BW213 | 250x128 | black/white | UC8151 |
-| 2 | BWR213 (Stellar Pro 213R-N) | 250x128 | black/white/red | UC8151 |
+| 1 | BW213 | 250x122 | black/white | UC8151 |
+| 2 | BWR213 (Stellar Pro 213R-N) | 250x122 | black/white/red | UC8151 |
 | 3 | BWR154 | 200x200 | black/white/red | SSD16xx |
 | 4 | 213ICE | 212x104 | black/white | SSD16xx |
 | 5 | BWR290 / BWR296 (Stellar L3N@, 290R-N) | 296x128 | black/white/red | SSD16xx |
@@ -135,6 +144,11 @@ uploaded again.
 Auto-detect only tells the two controller families apart (by the level the BUSY pin idles at after
 a reset) and picks model 5 or 2. Black/white panels, the 2.13" ICE and the 1.54" have to be chosen
 in the web tool; the choice is saved.
+
+The 2.13" panels show 122 rows, but their controller keeps 128 per column. Frames (and uploaded
+images) are sent as columns of whole bytes, rightmost column first, top pixel in the most
+significant bit, so each 2.13" column carries 6 unused bits at the bottom. Firmware before v0.9.0
+drew the clock screens 128 rows high there, so their bottom 6 rows were cut off.
 
 ## Bluetooth commands
 
@@ -151,12 +165,13 @@ unless noted.
 | `E0 <model>` | Select the display model (table above) |
 | `E1 <scene>` | Switch the screen (table above) |
 | `E2 AA` | Reply with the temperature, int16 in 0.1 °C |
-| `E2 AB` | Reply `E2 AB <model> <width:2> <height:2> <stored model>` |
+| `E2 AB` | Reply `E2 AB <model> <width:2> <height:2> <stored model>`; height is the visible rows |
 | `E2 <other>` | Redraw with a full refresh |
 | `E3 00\|01` | Status LED off/on |
 | `E4 00\|01` | Stop/start the LED rainbow |
 | `E5 …` | Image upload, see `image_upload` in `rxtx_commands.c` |
 | `E6 00\|01\|AA` | Fast refresh off/on/query; replies `E6 <enabled> <supported>` |
+| `E7 <minutes> <sync>`, `E7 AA` | Show a new clock time every 1 to 60 minutes; sync `01` ends refreshes on the minute. `AA` queries; replies `E7 <minutes> <sync>` |
 
 Firmware updates use characteristic `0x331F` of service `0x221F`; `Firmware/src/ble/ota_service.c`
 describes the protocol.

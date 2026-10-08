@@ -2,6 +2,7 @@
 #include "application/ports/settings_storage.h"
 #include "domain/panel.h"
 #include "domain/clock_calibration.h"
+#include "domain/clock_schedule.h"
 #include "sections.h"
 
 static RAM device_settings_t settings;
@@ -13,6 +14,8 @@ static void apply_defaults(void)
     settings.fast_refresh_enabled = 0;
     settings.led_flashing_enabled = 1;
     settings.clock_trim = CLOCK_TRIM_DEFAULT;
+    settings.clock_interval = CLOCK_SCHEDULE_DEFAULT_MINUTES;
+    settings.clock_sync = 0;
 }
 
 void device_settings_load(void)
@@ -82,5 +85,29 @@ int16_t device_settings_clock_trim(void)
 void device_settings_set_clock_trim(int16_t trim)
 {
     settings.clock_trim = trim;
+    settings_changed = 1;
+}
+
+uint8_t device_settings_clock_interval(void)
+{
+    return clock_schedule_valid(settings.clock_interval) ? settings.clock_interval : CLOCK_SCHEDULE_DEFAULT_MINUTES;
+}
+
+void device_settings_set_clock_interval(uint8_t minutes)
+{
+    if (!clock_schedule_valid(minutes))
+        return;
+    settings.clock_interval = minutes;
+    settings_changed = 1;
+}
+
+uint8_t device_settings_clock_sync(void)
+{
+    return settings.clock_sync;
+}
+
+void device_settings_set_clock_sync(uint8_t enabled)
+{
+    settings.clock_sync = enabled ? 1 : 0;
     settings_changed = 1;
 }

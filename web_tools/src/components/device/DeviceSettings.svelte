@@ -6,6 +6,10 @@
 	let patternHex = $state('ff');
 	let patternValid = $derived(/^[0-9a-f]{1,2}$/i.test(patternHex.trim()));
 
+	// Firmware before v0.9.0 does not answer E7.
+	let clockSupported = $derived(store.clockIntervalMinutes !== null);
+	const CLOCK_INTERVALS = [1, 2, 5, 10, 15, 30, 60];
+
 	function modelLabel(option: (typeof DISPLAY_MODEL_OPTIONS)[number]) {
 		if (option.model !== 0) return `${option.name} · ${option.width}×${option.height}`;
 		return store.selectedModel === 0 ? `Auto detect · ${store.deviceModelName}` : 'Auto detect';
@@ -38,6 +42,36 @@
 		checked={store.fastRefreshEnabled}
 		disabled={store.busy || !store.fastRefreshSupported}
 		onchange={(enabled) => store.setFastRefreshEnabled(enabled)}
+	/>
+
+	<label class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+		<span class="flex flex-col">
+			<span class="text-[0.95rem]">Clock refresh</span>
+			<span class="text-sm text-muted">
+				{clockSupported ? 'How often the clock screens show a new time' : 'Needs firmware v0.9.0'}
+			</span>
+		</span>
+		<select
+			class="field w-auto min-w-44"
+			value={store.clockIntervalMinutes ?? 1}
+			disabled={store.busy || !clockSupported}
+			onchange={(event) =>
+				store.setClockSchedule(Number(event.currentTarget.value), store.clockSync === true)}
+		>
+			{#each CLOCK_INTERVALS as minutes (minutes)}
+				<option value={minutes}
+					>{minutes === 1 ? 'Every minute' : `Every ${minutes} minutes`}</option
+				>
+			{/each}
+		</select>
+	</label>
+
+	<Toggle
+		label="Finish on the minute"
+		hint="Starts each refresh early, so the new time appears as the minute changes"
+		checked={store.clockSync}
+		disabled={store.busy || !clockSupported}
+		onchange={(enabled) => store.setClockSchedule(store.clockIntervalMinutes ?? 1, enabled)}
 	/>
 
 	<Toggle

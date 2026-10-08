@@ -12,6 +12,7 @@
 uint32_t fake_utc;
 uint16_t fake_utc_ms;
 uint32_t fake_uptime;
+uint16_t fake_uptime_ms;
 int16_t fake_clock_trim;
 
 uint8_t fake_detect_model;
@@ -64,6 +65,7 @@ void fakes_reset(void)
     fake_utc = 0;
     fake_utc_ms = 0;
     fake_uptime = 0;
+    fake_uptime_ms = 0;
     fake_clock_trim = 0;
 
     fake_detect_model = PANEL_MODEL_BWR296;
@@ -104,6 +106,11 @@ void fakes_reset(void)
 uint32_t wall_clock_uptime_seconds(void)
 {
     return fake_uptime;
+}
+
+uint32_t wall_clock_uptime_ms(void)
+{
+    return fake_uptime * 1000 + fake_uptime_ms;
 }
 
 uint32_t wall_clock_utc(uint16_t *ms)

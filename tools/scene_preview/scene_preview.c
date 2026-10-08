@@ -30,8 +30,8 @@ typedef struct
 static const panel_t panels[] = {
     {"bwr296x128", 296, 128, 1},
     {"bw296x128", 296, 128, 0},
-    {"bwr250x128", 250, 128, 1},
-    {"bw250x128", 250, 128, 0},
+    {"bwr250x122", 250, 122, 1},
+    {"bw250x122", 250, 122, 0},
     {"bw212x104", 212, 104, 0},
     {"bwr200x200", 200, 200, 1},
 };
@@ -62,7 +62,7 @@ static int write_ppm(const char *path, const epd_canvas_t *c)
     {
         for (x = 0; x < c->width; x++)
         {
-            int index = (c->width - 1 - x) * (c->height / 8) + y / 8;
+            int index = (c->width - 1 - x) * c->column_bytes + y / 8;
             uint8_t mask = 0x80 >> (y & 7);
             uint8_t rgb[3];
 

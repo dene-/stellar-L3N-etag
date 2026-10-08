@@ -1,10 +1,11 @@
 // Pure domain rules: panel table, refresh policy, slideshow, calendar, time zone, clock calibration,
-// firmware image, temperature, period, battery, device name.
+// clock schedule, firmware image, temperature, period, battery, device name.
 #include <string.h>
 #include "check.h"
 #include "domain/battery.h"
 #include "domain/calendar.h"
 #include "domain/clock_calibration.h"
+#include "domain/clock_schedule.h"
 #include "domain/device_name.h"
 #include "domain/firmware_image.h"
 #include "domain/panel.h"
@@ -22,7 +23,7 @@ static void test_panel(void)
         uint16_t width, height;
         uint8_t has_red;
     } expected[] = {
-        {PANEL_MODEL_BW213, 250, 128, 0},     {PANEL_MODEL_BWR213, 250, 128, 1}, {PANEL_MODEL_BWR154, 200, 200, 1},
+        {PANEL_MODEL_BW213, 250, 122, 0},     {PANEL_MODEL_BWR213, 250, 122, 1}, {PANEL_MODEL_BWR154, 200, 200, 1},
         {PANEL_MODEL_BW213_ICE, 212, 104, 0}, {PANEL_MODEL_BWR296, 296, 128, 1}, {PANEL_MODEL_BW296, 296, 128, 0},
     };
     unsigned i;
@@ -44,6 +45,8 @@ static void test_panel(void)
         CHECK(panel_plane_bytes(panel) <= PANEL_MAX_PLANE_BYTES);
     }
     CHECK_EQ(panel_plane_bytes(panel_find(PANEL_MODEL_BWR154)), PANEL_MAX_PLANE_BYTES);
+    // 122 visible rows still take 16 bytes per column in the controller.
+    CHECK_EQ(panel_plane_bytes(panel_find(PANEL_MODEL_BWR213)), 250 * 16);
 }
 
 static void test_refresh_policy(void)
@@ -302,6 +305,28 @@ static void test_period(void)
     CHECK_EQ(period_elapsed(&period, 1019, 10), 0); // restarted at 1010
 }
 
+static void test_clock_schedule(void)
+{
+    const uint32_t day = 1791417600u; // 2026-10-08 00:00
+
+    // Every minute: the next whole minute, strictly after the given time.
+    CHECK_EQ(clock_schedule_next(day + 13 * 3600 + 45 * 60 + 30, 1), day + 13 * 3600 + 46 * 60);
+    CHECK_EQ(clock_schedule_next(day + 13 * 3600 + 46 * 60, 1), day + 13 * 3600 + 47 * 60);
+    // Every 5 and 15 minutes, counted from midnight.
+    CHECK_EQ(clock_schedule_next(day + 13 * 3600 + 46 * 60, 5), day + 13 * 3600 + 50 * 60);
+    CHECK_EQ(clock_schedule_next(day + 13 * 3600 + 50 * 60, 5), day + 13 * 3600 + 55 * 60);
+    CHECK_EQ(clock_schedule_next(day + 23 * 3600 + 59 * 60 + 59, 15), day + 24 * 3600);
+    CHECK_EQ(clock_schedule_next(day + 13 * 3600 + 1, 60), day + 14 * 3600);
+    // 7 does not divide a day: 23:55 is followed by midnight, then 00:07.
+    CHECK_EQ(clock_schedule_next(day + 23 * 3600 + 55 * 60, 7), day + 24 * 3600);
+    CHECK_EQ(clock_schedule_next(day + 24 * 3600, 7), day + 24 * 3600 + 7 * 60);
+    // Invalid intervals fall back to every minute.
+    CHECK_EQ(clock_schedule_next(day + 30, 0), day + 60);
+    CHECK_EQ(clock_schedule_next(day + 30, CLOCK_SCHEDULE_MAX_MINUTES + 1), day + 60);
+    CHECK(clock_schedule_valid(1) && clock_schedule_valid(CLOCK_SCHEDULE_MAX_MINUTES));
+    CHECK(!clock_schedule_valid(0) && !clock_schedule_valid(CLOCK_SCHEDULE_MAX_MINUTES + 1));
+}
+
 static void test_battery_and_name(void)
 {
     static const uint8_t mac[6] = {0xAC, 0xF8, 0x3A, 0x11, 0x22, 0x33};
@@ -335,6 +360,7 @@ int main(void)
     test_firmware_image();
     test_temperature();
     test_period();
+    test_clock_schedule();
     test_battery_and_name();
     return check_report();
 }

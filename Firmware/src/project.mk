@@ -11,6 +11,7 @@ $(OUT_PATH)/main.o \
 $(OUT_PATH)/domain/battery.o \
 $(OUT_PATH)/domain/calendar.o \
 $(OUT_PATH)/domain/clock_calibration.o \
+$(OUT_PATH)/domain/clock_schedule.o \
 $(OUT_PATH)/domain/device_name.o \
 $(OUT_PATH)/domain/epd_canvas.o \
 $(OUT_PATH)/domain/epd_scenes.o \

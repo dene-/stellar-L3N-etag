@@ -23,11 +23,11 @@ typedef struct
     uint8_t model;
     const char *name;
     uint16_t width;
-    uint16_t height;
+    uint16_t height; // visible rows; a column takes (height+7)/8 bytes, see domain/epd_canvas.h
     uint8_t has_red;
 } panel_t;
 
 // NULL for PANEL_MODEL_AUTO and unknown ids.
 const panel_t *panel_find(uint8_t model);
-// Bytes in one bit plane (black or red) of the panel.
+// Bytes in one bit plane (black or red) of the panel: width columns of (height+7)/8 bytes.
 uint16_t panel_plane_bytes(const panel_t *panel);

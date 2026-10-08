@@ -51,6 +51,6 @@ export function clampPanOffset(value: number) {
 }
 
 export function computeMaxImageCount(displayWidth: number, displayHeight: number): number {
-	const planeSize = (displayWidth * displayHeight) / 8;
+	const planeSize = displayWidth * Math.ceil(displayHeight / 8);
 	return Math.min(Math.floor(FLASH_IMAGE_STORAGE_BYTES / (planeSize * 2)), IMAGE_STORE_MAX_COUNT);
 }

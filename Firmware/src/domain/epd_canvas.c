@@ -3,12 +3,14 @@
 
 void epd_canvas_init(epd_canvas_t *c, uint8_t *black, uint8_t *red, int16_t width, int16_t height, uint8_t has_red)
 {
-    uint16_t size = (uint16_t)(width * (height >> 3));
+    uint16_t size;
 
     c->black = black;
     c->red = red;
     c->width = width;
     c->height = height;
+    c->column_bytes = (int16_t)((height + 7) >> 3);
+    size = (uint16_t)(width * c->column_bytes);
     c->has_red = has_red;
 #ifdef EPD_CANVAS_COUNT_CLIPPED
     c->clipped = 0;
@@ -30,7 +32,7 @@ void epd_canvas_pixel(epd_canvas_t *c, int16_t x, int16_t y, epd_ink_t ink)
         return;
     }
 
-    index = (uint16_t)((c->width - 1 - x) * (c->height >> 3) + (y >> 3));
+    index = (uint16_t)((c->width - 1 - x) * c->column_bytes + (y >> 3));
     mask = 0x80 >> (y & 7);
 
     switch (ink)

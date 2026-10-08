@@ -19,10 +19,11 @@ type StoredImageBuffers = {
 	red: Uint8Array;
 };
 
+// Heights are visible rows; the 2.13" controllers keep 128 rows per column (see canvas2bytes).
 export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
-	{ model: 0, name: 'Auto detect (2.9" or 2.13" BWR)', width: 250, height: 128, hasRed: true },
-	{ model: 1, name: 'BW213', width: 250, height: 128, hasRed: false },
-	{ model: 2, name: 'BWR213', width: 250, height: 128, hasRed: true },
+	{ model: 0, name: 'Auto detect (2.9" or 2.13" BWR)', width: 250, height: 122, hasRed: true },
+	{ model: 1, name: 'BW213', width: 250, height: 122, hasRed: false },
+	{ model: 2, name: 'BWR213', width: 250, height: 122, hasRed: true },
 	{ model: 3, name: 'BWR154', width: 200, height: 200, hasRed: true },
 	{ model: 4, name: '213ICE', width: 212, height: 104, hasRed: false },
 	{ model: 5, name: 'BWR290 / BWR296', width: 296, height: 128, hasRed: true },
@@ -116,6 +117,10 @@ class BleConnectionStore {
 	displayHasRed = $state(DEFAULT_DISPLAY_INFO.hasRed);
 	fastRefreshEnabled = $state(false);
 	fastRefreshSupported = $state(false);
+	// Clock screens: minutes between new frames and whether refreshes end on the minute (E7). null
+	// until the tag replies; firmware before v0.9.0 never does.
+	clockIntervalMinutes: number | null = $state(null);
+	clockSync: boolean | null = $state(null);
 	displaySource: DisplaySource = $state('default');
 	// Sensor values the tag notifies every 30 s while connected; null until the first one.
 	temperatureC: number | null = $state(null);
@@ -308,6 +313,15 @@ class BleConnectionStore {
 				return;
 			}
 
+			if (data.byteLength === 3 && data[0] === 0xe7) {
+				this.clockIntervalMinutes = data[1];
+				this.clockSync = data[2] === 0x01;
+				logStore.addLog(
+					`[From display][RXTX]: Clock frame every ${data[1]} min${this.clockSync ? ', ending on the minute' : ''}`
+				);
+				return;
+			}
+
 			const hex = bytesToHex(data);
 
 			// E2 AA reply: int16 LE, tenths of a degree.
@@ -393,6 +407,7 @@ class BleConnectionStore {
 		logStore.addLog('Querying display model...');
 		await this.sendRxTxCommand('e2ab');
 		await this.queryFastRefreshInfo();
+		await this.sendRxTxCommand('e7aa');
 	}
 
 	async queryFastRefreshInfo() {
@@ -407,6 +422,13 @@ class BleConnectionStore {
 
 	async setFastRefreshEnabled(enabled: boolean) {
 		await this.sendRxTxCommand(enabled ? 'e601' : 'e600');
+	}
+
+	// Every 1 to 60 minutes; sync starts each refresh early so the new time shows as the minute changes.
+	async setClockSchedule(minutes: number, sync: boolean) {
+		this.clockIntervalMinutes = minutes;
+		this.clockSync = sync;
+		await this.sendRxTxCommand(`e7${intToHex(minutes, 1)}${sync ? '01' : '00'}`);
 	}
 
 	async setDisplayModel(model: number) {
@@ -851,6 +873,8 @@ class BleConnectionStore {
 		this.connectedDeviceName = '';
 		this.fastRefreshEnabled = false;
 		this.fastRefreshSupported = false;
+		this.clockIntervalMinutes = null;
+		this.clockSync = null;
 		this.applyDisplayModelInfo(DEFAULT_DISPLAY_INFO, 'default');
 		this.selectedModel = DEFAULT_DISPLAY_INFO.model;
 		this.temperatureC = null;

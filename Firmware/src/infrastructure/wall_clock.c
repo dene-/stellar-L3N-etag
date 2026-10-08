@@ -58,3 +58,9 @@ _attribute_ram_code_ uint32_t wall_clock_uptime_seconds(void)
 {
     return uptime_seconds;
 }
+
+_attribute_ram_code_ uint32_t wall_clock_uptime_ms(void)
+{
+    // Not clamped to the current second: seconds the main loop has yet to count are included.
+    return uptime_seconds * 1000 + (clock_time() - last_second_tick) / (ticks_per_second / 1000);
+}

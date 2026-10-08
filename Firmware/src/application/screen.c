@@ -7,16 +7,27 @@
 #include "application/ports/wall_clock.h"
 #include "application/ports/image_storage.h"
 #include "domain/battery.h"
+#include "domain/calendar.h"
+#include "domain/clock_schedule.h"
 #include "domain/epd_canvas.h"
 #include "domain/epd_scenes.h"
 #include "domain/slideshow.h"
 #include "domain/temperature.h"
 #include "sections.h"
 
+// The main loop runs at least once per advertising interval (about a second); a refresh planned to
+// end on the minute starts up to this much early instead of late.
+#define WAKE_MARGIN_MS 1100
+
 static RAM uint8_t scene = SCREEN_SCENE_DASHBOARD;
 // Redraw on the next update; also set at boot, when the panel content is unknown.
 static RAM uint8_t redraw_requested = 1;
-static RAM uint8_t drawn_minute = 100;
+// Clock scenes: local time of the next frame (a whole minute); 0 = show the current time.
+static RAM uint32_t next_frame;
+// Sync mode: how long before next_frame its refresh starts, once planned; 0 = not planned yet.
+static RAM uint32_t planned_lead_ms;
+// The schedule settings changed: plan the next frame again.
+static RAM uint8_t replan;
 static RAM slideshow_t slideshow;
 
 // Images are always shown with a full refresh: a partial one cannot draw red.
@@ -42,27 +53,90 @@ static void build_scene_data(epd_scene_data_t *data, struct date_time time, uint
     strncpy(data->device_name, device_name, sizeof(data->device_name) - 1);
 }
 
-// Redraws a clock scene once a minute (or when requested); the panel refreshes only if the frame changed.
-static void update_clock_scene(epd_scene_draw_fn draw, uint8_t ble_connected, const char *device_name)
+// Draws a clock scene for local time `shown` (0 = clock not set) into the planes.
+static void draw_clock_frame(epd_scene_draw_fn draw, uint32_t shown, uint8_t ble_connected, const char *device_name)
 {
-    struct date_time time = local_time_date();
-    const panel_t *panel;
+    const panel_t *panel = display_panel();
+    struct date_time time;
     epd_scene_data_t data;
     epd_canvas_t canvas;
 
-    if (display_is_refreshing())
-        return;
-    if (!redraw_requested && time.tm_min == drawn_minute)
-        return;
-    drawn_minute = time.tm_min;
-
-    panel = display_panel();
+    if (shown)
+        time = calendar_date(shown);
+    else
+        memset(&time, 0, sizeof(time));
     build_scene_data(&data, time, ble_connected, device_name);
     epd_canvas_init(&canvas, display_plane(DISPLAY_PLANE_BLACK), display_plane(DISPLAY_PLANE_RED), panel->width,
                     panel->height, panel->has_red);
     draw(&canvas, &data);
-    display_refresh_if_changed(redraw_requested, device_settings_fast_refresh_enabled());
-    redraw_requested = 0;
+}
+
+// Shows a new clock frame every clock interval (domain/clock_schedule.h), or when requested; the
+// panel refreshes only if the frame changed. In sync mode the next frame is drawn ahead of its time
+// and its refresh starts early by as long as that kind of refresh last took, so the panel shows the
+// new time as the minute changes.
+static void update_clock_scene(epd_scene_draw_fn draw, uint8_t ble_connected, const char *device_name)
+{
+    uint8_t minutes = device_settings_clock_interval();
+    uint8_t fast = device_settings_fast_refresh_enabled();
+    uint16_t ms;
+    uint32_t now;
+    int32_t remaining_ms;
+
+    if (display_is_refreshing())
+        return;
+    now = local_time_seconds(&ms);
+    if (replan && now && next_frame)
+    {
+        next_frame = clock_schedule_next(now, minutes);
+        planned_lead_ms = 0;
+    }
+    replan = 0;
+
+    // The current time, at once: when asked to, when the clock was first set, and when it jumped
+    // (synced far off, time zone change) past the next frame or well before it.
+    if (redraw_requested ||
+        (now && (!next_frame || now >= next_frame + 60 || next_frame > now + minutes * 60u + 60)))
+    {
+        draw_clock_frame(draw, now, ble_connected, device_name);
+        display_refresh_if_changed(redraw_requested, fast);
+        redraw_requested = 0;
+        next_frame = now ? clock_schedule_next(now, minutes) : 0;
+        planned_lead_ms = 0;
+        return;
+    }
+    if (!now)
+        return; // without a clock, only requested redraws
+
+    remaining_ms = (int32_t)(next_frame - now) * 1000 - ms;
+    if (device_settings_clock_sync())
+    {
+        if (!planned_lead_ms)
+        {
+            refresh_kind_t kind;
+
+            // Once even a full refresh would have to start, find out which kind the frame needs.
+            if (remaining_ms > (int32_t)(display_refresh_duration_ms(REFRESH_FULL) + WAKE_MARGIN_MS))
+                return;
+            draw_clock_frame(draw, next_frame, ble_connected, device_name);
+            kind = display_plan_refresh(0, fast);
+            if (kind == REFRESH_SKIP)
+            {
+                next_frame = clock_schedule_next(next_frame, minutes);
+                return;
+            }
+            planned_lead_ms = display_refresh_duration_ms(kind) + WAKE_MARGIN_MS;
+        }
+        if (remaining_ms > (int32_t)planned_lead_ms)
+            return;
+    }
+    else if (remaining_ms > 0)
+        return;
+
+    draw_clock_frame(draw, next_frame, ble_connected, device_name);
+    display_refresh_if_changed(0, fast);
+    next_frame = clock_schedule_next(next_frame, minutes);
+    planned_lead_ms = 0;
 }
 
 // Images stored for a panel of another size are not shown on this one.
@@ -120,6 +194,11 @@ void screen_hold_frame(void)
 void screen_request_redraw(void)
 {
     redraw_requested = 1;
+}
+
+void screen_clock_schedule_changed(void)
+{
+    replan = 1;
 }
 
 void screen_select_panel(uint8_t model)

@@ -8,7 +8,11 @@
 
 static RAM uint8_t model = PANEL_MODEL_AUTO;
 static RAM uint8_t refreshing;
-static RAM uint32_t refresh_started;
+static RAM uint8_t refresh_full;
+static RAM uint32_t refresh_started;    // uptime seconds
+static RAM uint32_t refresh_started_ms; // uptime ms
+// Last measured duration of a partial [0] and a full [1] refresh on this panel, 0 = not yet.
+static RAM uint32_t refresh_ms[2];
 static RAM refresh_policy_t refresh_policy;
 
 static RAM uint8_t temperature_valid;
@@ -50,8 +54,10 @@ _attribute_ram_code_ static void show(uint8_t *black, uint8_t *red, uint16_t siz
     // Black/white panels sharing a BWR driver must get a blank red RAM, whatever was drawn.
     if (!panel->has_red)
         red = 0;
+    refresh_started_ms = wall_clock_uptime_ms();
     remember_temperature(epd_panel_refresh(panel->model, black, red, size, full));
     refreshing = 1;
+    refresh_full = full ? 1 : 0;
     refresh_started = wall_clock_uptime_seconds();
 }
 
@@ -68,6 +74,7 @@ void display_select_model(uint8_t new_model)
     device_settings_set_panel_model(model);
     refresh_policy_forget(&refresh_policy);
     temperature_valid = 0;
+    refresh_ms[0] = refresh_ms[1] = 0;
 }
 
 const panel_t *display_panel(void)
@@ -120,6 +127,20 @@ uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast)
     return 1;
 }
 
+refresh_kind_t display_plan_refresh(uint8_t redraw, uint8_t fast)
+{
+    return refresh_policy_peek(&refresh_policy, black_plane, red_plane, panel_plane_bytes(display_panel()), redraw, fast);
+}
+
+uint32_t display_refresh_duration_ms(refresh_kind_t kind)
+{
+    uint8_t full = (kind == REFRESH_FULL);
+
+    if (refresh_ms[full])
+        return refresh_ms[full];
+    return full ? DISPLAY_FULL_REFRESH_DEFAULT_MS : DISPLAY_PARTIAL_REFRESH_DEFAULT_MS;
+}
+
 uint8_t display_is_refreshing(void)
 {
     return refreshing;
@@ -127,10 +148,16 @@ uint8_t display_is_refreshing(void)
 
 _attribute_ram_code_ uint8_t display_poll(void)
 {
+    if (!refreshing)
+        return 0;
+    if (epd_panel_is_idle(model))
+    {
+        refresh_ms[refresh_full] = wall_clock_uptime_ms() - refresh_started_ms;
+        end_refresh();
+    }
     // A panel that never reports idle (wrong model selected, loose cable) must not keep the tag
     // awake and block every later update.
-    if (refreshing && (epd_panel_is_idle(model) ||
-                       wall_clock_uptime_seconds() - refresh_started >= DISPLAY_REFRESH_TIMEOUT))
+    else if (wall_clock_uptime_seconds() - refresh_started >= DISPLAY_REFRESH_TIMEOUT)
         end_refresh();
     return refreshing;
 }

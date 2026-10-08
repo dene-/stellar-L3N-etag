@@ -5,8 +5,9 @@
 // Drawing surface that renders straight into the two panel planes the EPD drivers consume.
 //
 // Panel plane layout (same as the web uploader's canvas2bytes): columns from the rightmost
-// (x = width-1) to the leftmost, each column height/8 bytes, top pixel in the MSB.
-// Black plane: 1 = white, 0 = black. Red plane: 1 = red. Height must be a multiple of 8.
+// (x = width-1) to the leftmost, each column (height+7)/8 bytes, top pixel in the MSB. Panels whose
+// height is not a multiple of 8 leave the last bits of each column unused (and white).
+// Black plane: 1 = white, 0 = black. Red plane: 1 = red.
 
 typedef enum
 {
@@ -28,6 +29,7 @@ typedef struct
     uint8_t *red;
     int16_t width;
     int16_t height;
+    int16_t column_bytes;
     uint8_t has_red;
 #ifdef EPD_CANVAS_COUNT_CLIPPED
     uint32_t clipped; // pixels drawn off-canvas plus text overflowing its box; the host preview fails on any
@@ -43,7 +45,7 @@ typedef struct
     int16_t bottom;
 } epd_text_box_t;
 
-// Points the canvas at the plane buffers (each width*height/8 bytes) and clears them to white.
+// Points the canvas at the plane buffers (each width*column_bytes bytes) and clears them to white.
 void epd_canvas_init(epd_canvas_t *c, uint8_t *black, uint8_t *red, int16_t width, int16_t height, uint8_t has_red);
 
 void epd_canvas_pixel(epd_canvas_t *c, int16_t x, int16_t y, epd_ink_t ink);

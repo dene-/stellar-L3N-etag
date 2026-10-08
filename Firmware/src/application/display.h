@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "domain/panel.h"
+#include "domain/refresh_policy.h"
 
 // The panel session: which panel is fitted, the frame planes drawn for it, refreshes and the
 // controller's temperature sensor.
@@ -32,6 +33,13 @@ void display_show_pattern(uint8_t pattern);
 // Shows the current frame as decided by domain/refresh_policy (redraw: even if unchanged; fast:
 // fast refresh mode); returns 0 if it was skipped.
 uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast);
+// The refresh display_refresh_if_changed would do for the current frame, without doing it.
+refresh_kind_t display_plan_refresh(uint8_t redraw, uint8_t fast);
+// How long a refresh of kind (partial or full) takes on this panel, from starting it until the
+// panel is idle: the last one measured, or the default until there is one.
+#define DISPLAY_PARTIAL_REFRESH_DEFAULT_MS 3000
+#define DISPLAY_FULL_REFRESH_DEFAULT_MS 20000
+uint32_t display_refresh_duration_ms(refresh_kind_t kind);
 
 uint8_t display_is_refreshing(void);
 // Powers the panel down once a refresh has finished, or after DISPLAY_REFRESH_TIMEOUT seconds if

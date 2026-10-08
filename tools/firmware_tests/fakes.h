@@ -5,10 +5,12 @@
 #include "application/device_settings.h"
 
 // wall_clock (default: UTC 0 = not set, uptime 0, trim 0). Intervals and timeouts run on
-// fake_uptime; fake_utc only feeds the local time. fake_clock_trim is the last trim set.
+// fake_uptime (+ fake_uptime_ms for the millisecond uptime); fake_utc only feeds the local time.
+// fake_clock_trim is the last trim set.
 extern uint32_t fake_utc;
 extern uint16_t fake_utc_ms;
 extern uint32_t fake_uptime;
+extern uint16_t fake_uptime_ms;
 extern int16_t fake_clock_trim;
 
 // epd_panel (default: detects PANEL_MODEL_BWR296, busy, temperature 200 = 20.0 C)

@@ -9,6 +9,7 @@
 #include "ble/ble.h"
 #include "ble/rxtx_commands.h"
 #include "application/local_time.h"
+#include "domain/clock_schedule.h"
 
 // RxTx characteristic: one command per write, opcode first. Replies go out as notifications.
 
@@ -98,7 +99,8 @@ static void set_scene(const uint8_t *payload, uint16_t length)
 
 // E2 AA: report the panel temperature as int16 little endian in 0.1 degrees C.
 // E2 AB: report E2 AB <model> <width:2> <height:2> <selected model> (little endian); <model> is the
-// panel in use, <selected model> the stored choice (PANEL_MODEL_AUTO when it was detected).
+// panel in use, <height> its visible rows, <selected model> the stored choice (PANEL_MODEL_AUTO when
+// it was detected).
 // E2 <other>: redraw the scene with a full refresh.
 static void query_or_redraw(const uint8_t *payload, uint16_t length)
 {
@@ -189,6 +191,28 @@ static void fast_refresh(const uint8_t *payload, uint16_t length)
 	notify(reply, sizeof(reply));
 }
 
+// E7 <minutes> <sync>: show a new clock frame every 1 to 60 minutes, counted from midnight, and
+// with sync 01 start each refresh early so it ends as the minute changes (persisted); E7 AA: query.
+// Replies E7 <minutes> <sync>.
+static void clock_schedule(const uint8_t *payload, uint16_t length)
+{
+	uint8_t reply[3];
+
+	if (payload[1] != 0xAA)
+	{
+		if (length < 3 || !clock_schedule_valid(payload[1]) || payload[2] > 0x01)
+			return;
+		device_settings_set_clock_interval(payload[1]);
+		device_settings_set_clock_sync(payload[2]);
+		screen_clock_schedule_changed();
+	}
+
+	reply[0] = 0xE7;
+	reply[1] = device_settings_clock_interval();
+	reply[2] = device_settings_clock_sync();
+	notify(reply, sizeof(reply));
+}
+
 static const rxtx_command_t commands[] = {
 	{0xB1, 2, show_pattern},
 	{0xDD, SET_TIME_ZONE_START, set_time},
@@ -201,6 +225,7 @@ static const rxtx_command_t commands[] = {
 	{0xE4, 2, set_led_rainbow},
 	{0xE5, 2, image_upload},
 	{0xE6, 2, fast_refresh},
+	{0xE7, 2, clock_schedule},
 };
 
 _attribute_ram_code_ int rxtx_commands_write(void *p)

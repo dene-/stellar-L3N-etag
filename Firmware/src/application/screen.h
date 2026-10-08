@@ -17,8 +17,10 @@ void screen_set_scene(uint8_t scene);
 void screen_hold_frame(void);
 // Redraws the current scene on the next update (a partial refresh for clock scenes in fast refresh mode).
 void screen_request_redraw(void);
+// The clock interval or sync setting changed: plan the next clock frame again (no redraw now).
+void screen_clock_schedule_changed(void);
 // Switches the panel model (see display_select_model) and redraws for the new resolution.
 void screen_select_panel(uint8_t model);
-// Main loop step: redraws the clock scenes when the minute changes, advances the slideshow and shows
-// newly uploaded images.
+// Main loop step: shows the clock scenes' next frame when it is due (see device settings
+// clock_interval and clock_sync), advances the slideshow and shows newly uploaded images.
 void screen_update(uint8_t ble_connected, const char *device_name);

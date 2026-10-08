@@ -45,42 +45,35 @@ export function decimalToHex(d: number, padding: number = 2): string {
 	return hex.padStart(padding, '0');
 }
 
-// Convert canvas RGBA into packed bitstream (LSB first per byte) scanning X right->left, Y top->bottom
+// Packs the canvas into a panel plane: columns from the rightmost to the leftmost, each column
+// ceil(height / 8) bytes with the top pixel in the MSB (see Firmware/src/domain/epd_canvas.h). Rows
+// past the canvas height pad each column to whole bytes: white in the black plane, none in red.
 export function canvas2bytes(canvas: HTMLCanvasElement, type: 'bw' | 'bwr' = 'bw'): Uint8Array {
 	const ctx = canvas.getContext('2d', { willReadFrequently: true });
 	if (!ctx) return new Uint8Array(0);
 	const { width, height } = canvas;
-	const imageData = ctx.getImageData(0, 0, width, height);
-	const data = imageData.data;
-
-	const totalBits = width * height;
-	const arr = new Uint8Array(Math.ceil(totalBits / 8));
+	const data = ctx.getImageData(0, 0, width, height).data;
+	const columnBytes = Math.ceil(height / 8);
+	const arr = new Uint8Array(width * columnBytes);
+	const padBit = type === 'bwr' ? 0 : 1;
 	let byteIndex = 0;
-	let byte = 0;
-	let bitCount = 0;
 
 	for (let x = width - 1; x >= 0; x--) {
-		for (let y = 0; y < height; y++) {
-			const index = (width * y + x) * 4;
-			let bit: number;
-			if (type !== 'bwr') {
-				bit = data[index] > 0 && data[index + 1] > 0 && data[index + 2] > 0 ? 1 : 0;
-			} else {
-				bit = data[index] > 0 && data[index + 1] === 0 && data[index + 2] === 0 ? 1 : 0;
+		for (let row = 0; row < columnBytes * 8; row += 8) {
+			let byte = 0;
+			for (let y = row; y < row + 8; y++) {
+				let bit = padBit;
+				if (y < height) {
+					const index = (width * y + x) * 4;
+					bit =
+						type === 'bwr'
+							? Number(data[index] > 0 && data[index + 1] === 0 && data[index + 2] === 0)
+							: Number(data[index] > 0 && data[index + 1] > 0 && data[index + 2] > 0);
+				}
+				byte = (byte << 1) | bit;
 			}
-
-			byte = (byte << 1) | bit;
-			bitCount++;
-
-			if (bitCount === 8) {
-				arr[byteIndex++] = byte;
-				byte = 0;
-				bitCount = 0;
-			}
+			arr[byteIndex++] = byte;
 		}
-	}
-	if (bitCount > 0) {
-		arr[byteIndex] = byte << (8 - bitCount);
 	}
 	return arr;
 }

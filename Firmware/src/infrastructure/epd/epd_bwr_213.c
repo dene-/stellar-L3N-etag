@@ -5,7 +5,7 @@
 #include "infrastructure/epd/epd_bwr_213.h"
 #include "drivers.h"
 
-// UC8151C EPD Controller — 2.13" B&W/Red (250x128)
+// UC8151C EPD Controller — 2.13" B&W/Red (250x122 visible, 128 rows of RAM per column)
 
 enum PSR_FLAGS
 {

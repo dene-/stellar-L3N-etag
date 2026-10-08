@@ -29,5 +29,8 @@ typedef struct
 // redraw refreshes even an unchanged frame.
 refresh_kind_t refresh_policy_decide(refresh_policy_t *policy, const uint8_t *black, const uint8_t *red, uint16_t size,
                                      uint8_t redraw, uint8_t fast);
+// What refresh_policy_decide would decide for the frame, without recording anything.
+refresh_kind_t refresh_policy_peek(const refresh_policy_t *policy, const uint8_t *black, const uint8_t *red, uint16_t size,
+                                   uint8_t redraw, uint8_t fast);
 // Something else was drawn on the panel; the next frame gets a full refresh.
 void refresh_policy_forget(refresh_policy_t *policy);
