@@ -51,8 +51,8 @@
 			<DeviceSettings />
 		{:else}
 			<div class="flex flex-col gap-8">
-				<p class="eyebrow">Hanshow Stellar e-paper tags</p>
-				<h1 class="display text-5xl sm:text-7xl">E-paper,<br />from the browser.</h1>
+				<p class="eyebrow">Not connected</p>
+				<h1 class="display text-5xl sm:text-7xl">Hanshow Stellar tags</h1>
 				<p class="max-w-sm text-lg leading-relaxed text-soft">
 					Connect a tag over Bluetooth to choose what it shows, send it pictures and update its
 					firmware.

@@ -146,7 +146,7 @@
 	<section class="flex min-w-0 flex-col gap-8">
 		<div class="flex flex-col gap-4">
 			<p class="eyebrow">Images</p>
-			<h1 class="display text-4xl sm:text-5xl">Pictures for the tag.</h1>
+			<h1 class="display text-4xl sm:text-5xl">Send pictures</h1>
 			<p class="max-w-xl text-soft">
 				Converted for the {store.deviceModelName} display ({store.displayWidth}×{store.displayHeight}).
 				Add one picture, or up to {maxImages} for a slideshow.

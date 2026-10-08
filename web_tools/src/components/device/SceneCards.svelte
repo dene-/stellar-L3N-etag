@@ -12,10 +12,10 @@
 	let { interactive, active, onselect }: Props = $props();
 
 	const screens: Record<number, { src: string; caption: string }> = {
-		2: { src: dashboardScreen, caption: 'Time and sensors' },
-		1: { src: clockScreen, caption: 'A large clock' },
-		0: { src: imageScreen, caption: 'Your last picture' },
-		3: { src: imageScreen, caption: 'Your pictures in turn' }
+		2: { src: dashboardScreen, caption: 'Time, temperature, battery' },
+		1: { src: clockScreen, caption: 'Time only, large' },
+		0: { src: imageScreen, caption: 'The last picture sent' },
+		3: { src: imageScreen, caption: 'Stored pictures in turn' }
 	};
 </script>
 

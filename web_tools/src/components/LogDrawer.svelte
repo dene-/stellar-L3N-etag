@@ -31,7 +31,7 @@
 			<li class="border-b border-line/50 py-1 break-words">{log}</li>
 		{:else}
 			<li class="text-muted">
-				Nothing yet. Connecting, uploads and replies from the tag show up here.
+				No entries. Connection steps, uploads and replies from the tag are listed here.
 			</li>
 		{/each}
 	</ol>

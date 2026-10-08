@@ -47,7 +47,7 @@
 			await flasher.open(Number(baudRate));
 			status = file
 				? 'Ready. Unlock the flash, then write the firmware.'
-				: 'Now choose a firmware file.';
+				: 'Choose a firmware file.';
 		} catch (error) {
 			logStore.addLog('Serial port: ' + errorText(error));
 			status = 'Could not open the serial port.';
@@ -60,7 +60,7 @@
 			await action();
 		} catch (error) {
 			logStore.addLog('Serial flashing: ' + errorText(error));
-			status = 'That did not work; see the activity log.';
+			status = 'Flashing failed; see the activity log.';
 		} finally {
 			busy = false;
 		}

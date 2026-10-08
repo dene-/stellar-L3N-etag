@@ -6,7 +6,7 @@
 <div class="flex flex-col gap-12">
 	<div class="flex flex-col gap-4">
 		<p class="eyebrow">Firmware</p>
-		<h1 class="display text-4xl sm:text-5xl">Keep the tag up to date.</h1>
+		<h1 class="display text-4xl sm:text-5xl">Install and update</h1>
 		<p class="max-w-xl text-soft">
 			Pick a release, or a <code class="font-mono text-sm text-fg">.bin</code> file of your own.
 			Tags running this firmware update over Bluetooth; a tag still on its original firmware needs

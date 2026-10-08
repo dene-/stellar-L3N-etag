@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="images/banner.svg" width="100%" alt="Stellar: e-paper, from the browser">
+<img src="images/banner.svg" width="100%" alt="Stellar firmware and web tool">
 
 <br>
 <br>
@@ -23,13 +23,13 @@
 
 Custom firmware for **Hanshow Stellar** electronic shelf labels, built on the Telink TLSR8359
 Bluetooth chip, and a web tool that manages them from the browser.<br>
-A clock dashboard, your own pictures or a slideshow, on black, white and red e-paper.
+Screens: a dashboard, a clock, the last picture sent, or a slideshow.
 
 </div>
 
 <br>
 
-## Highlights
+## Features
 
 <table>
   <tr>
@@ -39,29 +39,29 @@ A clock dashboard, your own pictures or a slideshow, on black, white and red e-p
       slideshow. Only redrawn when something changed.
     </td>
     <td width="33%" valign="top">
-      <h4>Your pictures</h4>
+      <h4>Pictures</h4>
       Dithered in the browser for the panel's colors, up to 22 stored on the tag. Change the
       slideshow interval without uploading again.
     </td>
     <td width="33%" valign="top">
-      <h4>No app to install</h4>
+      <h4>Browser setup</h4>
       Everything runs in Chrome or Edge over Web Bluetooth; the first install uses Web Serial and a
       USB adapter.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h4>Safe updates</h4>
+      <h4>Dual-bank updates</h4>
       Two firmware banks: an update is written next to the running firmware and only started once
       its checksum matches.
     </td>
     <td valign="top">
-      <h4>A clock that keeps time</h4>
+      <h4>Timekeeping</h4>
       Time zone and daylight saving rules for the next years, and a drift correction learned from
       every sync.
     </td>
     <td valign="top">
-      <h4>Sensors on the air</h4>
+      <h4>Sensor advertising</h4>
       Temperature, battery percentage and voltage advertised in the ATC1441 format, readable
       without connecting.
     </td>
@@ -129,7 +129,14 @@ run the tool locally, with Node 22.17 or later: `cd web_tools && yarn install &&
 | --- | --- | :---: |
 | Stellar L3N@ 2.9" | BWR296, 296×128, black/white/red | ✓ |
 | Stellar Pro 213R-N | BWR213, 250×122, black/white/red | ✓ |
+| Stellar 213Q-N (experimental) | BWRY213, 250×122, black/white/red/yellow | |
 | Other Stellar tags with these panels | see [Display models](#display-models) | |
+
+The Stellar 213Q-N (four-colour panel, JD79661 controller) sits on a newer Hanshow board whose panel
+is wired to different pins. Bluetooth works on it with any model, but the screen only refreshes once
+model 7 is selected on the Device page, which switches the firmware to that wiring. The wiring and
+the panel driver come from other projects' work on the same board generation and have not been
+confirmed on a 213Q-N yet.
 
 `Compatible_models/` has photos of other Stellar variants.
 
@@ -286,10 +293,16 @@ UUID 0x181A).
 | 4 | 213ICE | 212×104 | black/white | SSD16xx |
 | 5 | BWR290 / BWR296 (Stellar L3N@, 290R-N) | 296×128 | black/white/red | SSD16xx |
 | 6 | BW290 / BW296 | 296×128 | black/white | SSD16xx |
+| 7 | BWRY213 (Stellar 213Q-N), experimental | 250×122 | black/white/red/yellow | JD79661 |
 
 Auto-detect only tells the two controller families apart (by the level the BUSY pin idles at after
-a reset) and picks model 5 or 2. Black/white panels, the 2.13" ICE and the 1.54" have to be chosen
-in the web tool; the choice is saved.
+a reset) and picks model 5 or 2. Black/white panels, the 2.13" ICE, the 1.54" and the four-colour
+2.13" have to be chosen in the web tool; the choice is saved.
+
+Model 7 also switches the panel and LED pins to the newer Hanshow board (RST PD4, DC PB7, BUSY PA1,
+CS PD2, CLK PD7, MOSI PB6, panel power PB5, red LED PB4). The panel has no partial refresh, so fast
+refresh is unavailable and every refresh is full. Images keep the two planes of the other panels: a
+pixel set in both the white and the red plane is yellow.
 
 The 2.13" panels show 122 rows, but their controller keeps 128 per column. Frames (and uploaded
 images) are sent as columns of whole bytes, rightmost column first, top pixel in the most
