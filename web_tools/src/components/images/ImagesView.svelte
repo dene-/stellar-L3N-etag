@@ -349,7 +349,7 @@
 		<div class="flex flex-col gap-3">
 			<button
 				class="btn btn-primary w-full"
-				disabled={store.busy || store.preconnected || (store.connected && photos.length === 0)}
+				disabled={store.busy || store.connecting || (store.connected && photos.length === 0)}
 				onclick={send}
 			>
 				{#if !store.connected}

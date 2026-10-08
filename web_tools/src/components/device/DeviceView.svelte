@@ -59,10 +59,10 @@
 			{#if bluetoothAvailable}
 				<button
 					class="cta self-start"
-					disabled={store.preconnected}
+					disabled={store.connecting}
 					onclick={() => store.preConnect()}
 				>
-					{store.preconnected ? 'Connecting…' : 'Connect a tag'}
+					{store.connecting ? 'Connecting…' : 'Connect a tag'}
 				</button>
 			{:else}
 				<p class="max-w-sm border-l-2 border-accent pl-4 text-soft">

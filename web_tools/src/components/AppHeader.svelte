@@ -58,11 +58,11 @@
 			{:else}
 				<button
 					class="btn btn-outline"
-					disabled={bleConnectionStore.preconnected}
+					disabled={bleConnectionStore.connecting}
 					onclick={() => bleConnectionStore.preConnect()}
 				>
 					<Icon name="bluetooth" size={16} />
-					{bleConnectionStore.preconnected ? 'Connecting…' : 'Connect'}
+					{bleConnectionStore.connecting ? 'Connecting…' : 'Connect'}
 				</button>
 			{/if}
 			<button

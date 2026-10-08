@@ -25,7 +25,7 @@
 	<div class="mt-auto flex flex-col gap-3">
 		<button
 			class="btn btn-primary"
-			disabled={store.busy || store.preconnected || (store.connected && !file)}
+			disabled={store.busy || store.connecting || (store.connected && !file)}
 			onclick={() =>
 				store.connected
 					? file && store.flashFirmware(OTA_BANK_ADDRESS, file.data)

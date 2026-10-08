@@ -100,7 +100,8 @@ class BleConnectionStore {
 	private writeServiceId = '0000221f-0000-1000-8000-00805f9b34fb';
 	private writeCharacteristicId = '0000331f-0000-1000-8000-00805f9b34fb';
 
-	preconnected = $state(false);
+	// From picking a tag until its services are set up and the first queries are answered.
+	connecting = $state(false);
 	connected = $state(false);
 	firmwareUploadProgress = $state(0);
 	imageUploadProgress = $state(0);
@@ -196,7 +197,7 @@ class BleConnectionStore {
 				this.applyDisplayModelInfo(inferredDisplay, 'name');
 			}
 
-			this.preconnected = true;
+			this.connecting = true;
 			await this.connect();
 		} catch (e) {
 			// A half-finished connection (e.g. a device without these services) must not stay open.
@@ -205,6 +206,8 @@ class BleConnectionStore {
 			}
 			this.resetVariables();
 			await handleError(e);
+		} finally {
+			this.connecting = false;
 		}
 	}
 
@@ -864,7 +867,7 @@ class BleConnectionStore {
 		this.writeService = null;
 		this.writeCharacteristic = null;
 		this.connected = false;
-		this.preconnected = false;
+		this.connecting = false;
 		this.firmwareUploadProgress = 0;
 		this.imageUploadProgress = 0;
 		this.isFlashingFirmware = false;
