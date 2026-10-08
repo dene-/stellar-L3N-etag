@@ -77,12 +77,16 @@
 				<h4 class="w-full">Display model</h4>
 				<select
 					class="select select-bordered select-primary w-60"
-					value={String(bleConnectionStore.deviceModel)}
+					value={bleConnectionStore.selectedModel}
 					onchange={handleDisplayModelChange}
 					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 				>
 					{#each DISPLAY_MODEL_OPTIONS as option (option.model)}
-						<option value={option.model}>{option.name} ({option.width}x{option.height})</option>
+						<option value={option.model}
+							>{option.model === 0
+								? `${option.name}${bleConnectionStore.selectedModel === 0 ? ` → ${bleConnectionStore.deviceModelName}` : ''}`
+								: `${option.name} (${option.width}x${option.height})`}</option
+						>
 					{/each}
 				</select>
 				<button
@@ -146,7 +150,7 @@
 					class="btn btn-primary"
 					onclick={() => bleConnectionStore.sendRxTxCommand('e200')}
 					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-					>Flush (partial)</button
+					>Redraw</button
 				>
 			</div>
 			<div class="flex flex-wrap gap-3">
@@ -155,7 +159,7 @@
 					class="btn btn-primary"
 					onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(0))}
 					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
-					>0: Image mode (no scene)</button
+					>0: Uploaded image</button
 				>
 				<button
 					class="btn btn-secondary"
@@ -168,6 +172,12 @@
 					onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(2))}
 					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
 					>2: Dashboard</button
+				>
+				<button
+					class="btn btn-secondary"
+					onclick={() => bleConnectionStore.sendRxTxCommand('e1' + hb(3))}
+					disabled={!bleConnectionStore.connected || bleConnectionStore.isFlashingFirmware}
+					>3: Slideshow</button
 				>
 			</div>
 			<div class="flex flex-wrap gap-3">

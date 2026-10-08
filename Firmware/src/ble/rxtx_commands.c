@@ -72,7 +72,8 @@ static void set_scene(const uint8_t *payload, uint16_t length)
 }
 
 // E2 AA: report the panel temperature as int16 little endian in 0.1 degrees C.
-// E2 AB: report E2 AB <model> <width:2> <height:2> (little endian).
+// E2 AB: report E2 AB <model> <width:2> <height:2> <selected model> (little endian); <model> is the
+// panel in use, <selected model> the stored choice (PANEL_MODEL_AUTO when it was detected).
 // E2 <other>: redraw the scene with a full refresh.
 static void query_or_redraw(const uint8_t *payload, uint16_t length)
 {
@@ -86,8 +87,8 @@ static void query_or_redraw(const uint8_t *payload, uint16_t length)
 	else if (payload[1] == 0xAB)
 	{
 		const panel_t *panel = display_panel();
-		uint8_t reply[7] = {0xE2, 0xAB, panel->model, panel->width & 0xFF, panel->width >> 8, panel->height & 0xFF,
-							panel->height >> 8};
+		uint8_t reply[8] = {0xE2, 0xAB, panel->model, panel->width & 0xFF, panel->width >> 8, panel->height & 0xFF,
+							panel->height >> 8, device_settings_panel_model()};
 
 		notify(reply, sizeof(reply));
 	}

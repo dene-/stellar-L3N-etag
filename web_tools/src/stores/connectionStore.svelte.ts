@@ -94,7 +94,10 @@ class BleConnectionStore {
 	isFlashingFirmware = $state(false);
 	isUploadingImages = $state(false);
 	connectedDeviceName = $state('');
+	// Panel the device drives (resolved by detection); sizes rendered images.
 	deviceModel = $state(DEFAULT_DISPLAY_INFO.model);
+	// Model chosen on the device (0 = auto-detect), shown in the display model selector.
+	selectedModel = $state(DEFAULT_DISPLAY_INFO.model);
 	deviceModelName = $state(DEFAULT_DISPLAY_INFO.name);
 	displayWidth = $state(DEFAULT_DISPLAY_INFO.width);
 	displayHeight = $state(DEFAULT_DISPLAY_INFO.height);
@@ -255,12 +258,14 @@ class BleConnectionStore {
 				return;
 			}
 
-			if (data.byteLength === 7 && data[0] === 0xe2 && data[1] === 0xab) {
+			if (data.byteLength >= 7 && data[0] === 0xe2 && data[1] === 0xab) {
 				const model = data[2];
 				const width = data[3] | (data[4] << 8);
 				const height = data[5] | (data[6] << 8);
 
 				this.applyDisplayGeometry(model, width, height, 'firmware');
+				// Firmware before v0.7.1 sends 7 bytes and doesn't say whether the model was auto-detected.
+				this.selectedModel = data.byteLength >= 8 ? data[7] : model;
 				logStore.addLog(
 					`[From display][RXTX]: ${this.deviceModelName} ${this.displayWidth}x${this.displayHeight}`
 				);
@@ -325,6 +330,7 @@ class BleConnectionStore {
 	}
 
 	async setDisplayModel(model: number) {
+		this.selectedModel = model;
 		if (model !== 0) {
 			this.applyDisplayModelInfo(resolveDisplayModel(model), 'manual');
 		}
@@ -738,6 +744,7 @@ class BleConnectionStore {
 		this.fastRefreshEnabled = false;
 		this.fastRefreshSupported = false;
 		this.applyDisplayModelInfo(DEFAULT_DISPLAY_INFO, 'default');
+		this.selectedModel = DEFAULT_DISPLAY_INFO.model;
 	}
 }
 
