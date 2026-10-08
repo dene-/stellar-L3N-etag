@@ -28,7 +28,14 @@ export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
 ];
 
 const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.model, info]));
+
 const DEFAULT_DISPLAY_INFO = DISPLAY_MODEL_MAP.get(2)!;
+
+// OTA layout, mirrors OTA_BANK_START/OTA_MAX_SIZE in Firmware/src/ota.c. The last 256 byte
+// page of the bank is never written by the device, so the largest image is one page shorter.
+export const OTA_BANK_ADDRESS = 0x20000;
+const OTA_BANK_SIZE = 0x20000;
+export const OTA_MAX_FIRMWARE_SIZE = OTA_BANK_SIZE - 0x100;
 
 function resolveDisplayModel(model: number): DisplayModelInfo {
 	return DISPLAY_MODEL_MAP.get(model) ?? DEFAULT_DISPLAY_INFO;
@@ -519,28 +526,25 @@ class BleConnectionStore {
 	}
 
 	private async eraseFwArea() {
-		const fwAreaSize = 0x20000;
-		let fwCurAddress = 0x20000;
-		const totalSectors = fwAreaSize / 0x1000;
-		let sectorsDone = 0;
-		while (fwCurAddress < 0x20000 + fwAreaSize) {
+		const totalSectors = OTA_BANK_SIZE / 0x1000;
+		for (let sector = 0; sector < totalSectors; sector++) {
+			const address = OTA_BANK_ADDRESS + sector * 0x1000;
 			const pkt = new Uint8Array(5);
 			pkt[0] = 0x01;
-			pkt[1] = (fwCurAddress >> 24) & 0xff;
-			pkt[2] = (fwCurAddress >> 16) & 0xff;
-			pkt[3] = (fwCurAddress >> 8) & 0xff;
-			pkt[4] = fwCurAddress & 0xff;
-			await this.writeCharacteristic?.writeValue(pkt);
-			fwCurAddress += 0x1000;
-			sectorsDone++;
-			logStore.addLog(`Erasing sector ${sectorsDone}/${totalSectors}`);
+			pkt[1] = (address >> 24) & 0xff;
+			pkt[2] = (address >> 16) & 0xff;
+			pkt[3] = (address >> 8) & 0xff;
+			pkt[4] = address & 0xff;
+			await this.writeCharacteristic?.writeValueWithResponse(pkt);
+			logStore.addLog(`Erasing sector ${sector + 1}/${totalSectors}`);
 		}
 	}
 
+	// Must match ota_bank_checksum() in Firmware/src/ota.c: 16-bit byte sum over the whole
+	// bank, where everything past the end of the image is erased flash (0xFF).
 	private calculateCRC(data: Uint8Array): number {
 		let crc = 0;
-		const totalSize = 0x20000; // OTA area size
-		for (let i = 0; i < totalSize; i++) {
+		for (let i = 0; i < OTA_BANK_SIZE; i++) {
 			crc += i < data.length ? data[i] : 0xff;
 		}
 		return crc & 0xffff;
@@ -553,7 +557,7 @@ class BleConnectionStore {
 			const pkt = new Uint8Array(1 + chunk.length);
 			pkt[0] = 0x03;
 			pkt.set(chunk, 1);
-			await this.writeCharacteristic?.writeValue(pkt);
+			await this.writeCharacteristic?.writeValueWithResponse(pkt);
 		}
 
 		// Commit this page to flash
@@ -563,12 +567,54 @@ class BleConnectionStore {
 		commitPkt[2] = (address >> 16) & 0xff;
 		commitPkt[3] = (address >> 8) & 0xff;
 		commitPkt[4] = address & 0xff;
-		await this.writeCharacteristic?.writeValue(commitPkt);
+		await this.writeCharacteristic?.writeValueWithResponse(commitPkt);
 
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		const { promise: settled, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 50);
+		await settled;
+	}
+
+	// Writes `packet` to the OTA characteristic and waits for the first notification accepted
+	// by `accept`. Resolves to null if none arrives in time (e.g. firmware too old to reply).
+	private async otaRequest(
+		packet: Uint8Array<ArrayBuffer>,
+		accept: (reply: Uint8Array) => boolean,
+		timeoutMs: number
+	): Promise<Uint8Array | null> {
+		const characteristic = this.writeCharacteristic;
+		if (!characteristic) throw new Error('OTA characteristic unavailable.');
+
+		const { promise: reply, resolve } = Promise.withResolvers<Uint8Array | null>();
+		const onValue = (event: Event) => {
+			const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
+			if (!value) return;
+			const data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+			if (accept(data)) resolve(data);
+		};
+		const timer = setTimeout(() => resolve(null), timeoutMs);
+		characteristic.addEventListener('characteristicvaluechanged', onValue);
+
+		try {
+			await characteristic.writeValueWithResponse(packet);
+			return await reply;
+		} finally {
+			clearTimeout(timer);
+			characteristic.removeEventListener('characteristicvaluechanged', onValue);
+		}
 	}
 
 	async flashFirmware(address: number, data: Uint8Array): Promise<void> {
+		if (!this.writeCharacteristic) {
+			logStore.addLog('OTA service unavailable. Is Bluetooth connected?');
+			return;
+		}
+		if (data.length > OTA_MAX_FIRMWARE_SIZE) {
+			logStore.addLog(
+				`Firmware is ${data.length} bytes; the OTA bank holds at most ${OTA_MAX_FIRMWARE_SIZE}.`
+			);
+			return;
+		}
+
 		const startTime = Date.now();
 		const pageSize = 0x100; // 256 bytes per flash page
 		const crc = this.calculateCRC(data);
@@ -577,35 +623,83 @@ class BleConnectionStore {
 		this.firmwareUploadProgress = 0;
 		this.isFlashingFirmware = true;
 
-		await this.eraseFwArea();
+		try {
+			// Replies (CRC result, rejection) come back as notifications on this characteristic.
+			await this.writeCharacteristic.startNotifications();
 
-		logStore.addLog('Flashing firmware... wait a little.');
+			await this.eraseFwArea();
 
-		let offset = 0;
-		while (offset < data.length) {
-			const pageData = data.subarray(offset, offset + pageSize);
-			await this.sendPart(address + offset, pageData);
-			offset += pageData.length;
-			this.firmwareUploadProgress = (offset / data.length) * 100;
+			logStore.addLog('Flashing firmware... wait a little.');
+
+			let offset = 0;
+			while (offset < data.length) {
+				const pageData = data.subarray(offset, offset + pageSize);
+				await this.sendPart(address + offset, pageData);
+				offset += pageData.length;
+				this.firmwareUploadProgress = (offset / data.length) * 100;
+			}
+
+			logStore.addLog(
+				`Firmware upload completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
+			);
+
+			// Command 06: device sums the uploaded bank and replies 07 <crc hi> <crc lo>.
+			// Firmware older than the on-device CRC check also needs this before command 07.
+			logStore.addLog('Verifying flash CRC on device...');
+			const verify = await this.otaRequest(
+				new Uint8Array([0x06]),
+				(d) => d.length === 3 && d[0] === 0x07,
+				15000
+			);
+			if (verify) {
+				const deviceCrc = (verify[1] << 8) | verify[2];
+				if (deviceCrc !== crc) {
+					logStore.addLog(
+						`CRC mismatch: device has 0x${deviceCrc.toString(16).padStart(4, '0')}, expected 0x${crcHex}. Not flashing, upload again.`
+					);
+					return;
+				}
+				logStore.addLog(`Device CRC OK (0x${crcHex}).`);
+			} else {
+				logStore.addLog('No CRC reply from device, continuing; the device verifies it again.');
+			}
+
+			// Command 07 <magic> <crc>: device re-checks the CRC, then rewrites its own flash and reboots.
+			// Only a rejection is ever reported back (07 00 <crc hi> <crc lo>).
+			logStore.addLog('Sending final flash command: 07C001CEED' + crcHex);
+			let rejected: Uint8Array | null = null;
+			try {
+				rejected = await this.otaRequest(
+					new Uint8Array([0x07, 0xc0, 0x01, 0xce, 0xed, crc >> 8, crc & 0xff]),
+					(d) => d.length === 4 && d[0] === 0x07 && d[1] === 0x00,
+					5000
+				);
+			} catch (e) {
+				// The device never acknowledges a successful flash: it reboots mid-write.
+				logStore.addLog(
+					'Connection lost after final command (' +
+						(e instanceof Error ? e.message : String(e)) +
+						'); the device is probably rebooting into the new firmware.'
+				);
+				return;
+			}
+
+			if (rejected) {
+				const deviceCrc = (rejected[2] << 8) | rejected[3];
+				logStore.addLog(
+					`Device rejected the firmware: its CRC is 0x${deviceCrc.toString(16).padStart(4, '0')}, expected 0x${crcHex}. Nothing was flashed.`
+				);
+				return;
+			}
+
+			logStore.addLog(
+				'Final command accepted. The device is rewriting its flash and will reboot; do not remove power.'
+			);
+		} catch (e) {
+			await handleError(e);
+		} finally {
+			this.isFlashingFirmware = false;
 		}
-
-		logStore.addLog(
-			`Firmware upload completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
-		);
-
-		// Send case 6 (on-device CRC verification) before case 7.
-		// This sets crc_verified on older firmware that requires it.
-		logStore.addLog('Verifying flash CRC on device...');
-		await this.writeCharacteristic?.writeValue(new Uint8Array([0x06]) as BufferSource);
-		// Wait for the device to read back 128KB of flash and compute CRC
-		await new Promise((resolve) => setTimeout(resolve, 3000));
-
-		logStore.addLog('Sending final flash command: 07C001CEED' + crcHex);
-		await this.writeCharacteristic?.writeValue(hexToBytes('07C001CEED' + crcHex) as BufferSource);
-
-		logStore.addLog('Flash command sent — device should reboot now.');
-
-		this.isFlashingFirmware = false;
 	}
 
 	resetVariables() {

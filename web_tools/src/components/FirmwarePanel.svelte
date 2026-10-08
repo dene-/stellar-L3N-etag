@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { bleConnectionStore } from '../stores/connectionStore.svelte';
+	import {
+		bleConnectionStore,
+		OTA_BANK_ADDRESS,
+		OTA_MAX_FIRMWARE_SIZE
+	} from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
 
 	let firmwareData: Uint8Array | null = $state(null);
@@ -16,8 +20,8 @@
 
 		const file = input.files[0];
 
-		if (file.size > 512 * 1024) {
-			logStore.addLog('Firmware file too large (max 512KB).');
+		if (file.size > OTA_MAX_FIRMWARE_SIZE) {
+			logStore.addLog(`Firmware file too large (max ${OTA_MAX_FIRMWARE_SIZE} bytes).`);
 			firmwareData = null;
 			return;
 		}
@@ -98,7 +102,7 @@
 						!firmwareData}
 					class="btn btn-primary self-start"
 					onclick={() => {
-						if (firmwareData) bleConnectionStore.flashFirmware(0x20000, firmwareData);
+						if (firmwareData) void bleConnectionStore.flashFirmware(OTA_BANK_ADDRESS, firmwareData);
 					}}
 				>
 					Upload Firmware

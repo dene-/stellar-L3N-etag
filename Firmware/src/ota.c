@@ -15,7 +15,21 @@ RAM uint8_t ramd_to_flash_temp_buffer[0x100];
 RAM uint16_t ram_position = 0;
 
 RAM uint16_t crc_out = 0;
-RAM uint16_t crc_verified = 0;
+
+// 16-bit byte sum of the whole OTA bank (matches calculateCRC in the web flasher).
+_attribute_ram_code_ static uint16_t ota_bank_checksum(void)
+{
+	uint16_t sum = 0;
+	for (uint32_t i = 0; i < OTA_MAX_SIZE; i += 0x100)
+	{
+		flash_read_page(OTA_BANK_START + i, sizeof(ramd_to_flash_temp_buffer), ramd_to_flash_temp_buffer);
+		for (int c = 0; c < 0x100; c++)
+		{
+			sum += ramd_to_flash_temp_buffer[c];
+		}
+	}
+	return sum;
+}
 
 _attribute_ram_code_ int custom_otaWrite(void *p)
 {
@@ -77,57 +91,34 @@ _attribute_ram_code_ int custom_otaWrite(void *p)
 		memcpy(out_buffer, &ramd_to_flash_temp_buffer[address], sizeof(out_buffer));
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, sizeof(out_buffer));
 		break;
-	case 6: // CRC Checking the uploaded part
-		for (int i = 0; i < OTA_MAX_SIZE; i += 0x100)
-		{
-			flash_read_page(OTA_BANK_START + i, sizeof(ramd_to_flash_temp_buffer), ramd_to_flash_temp_buffer);
-			for (int c = 0; c < 0x100; c++)
-			{
-				crc_out += ramd_to_flash_temp_buffer[c]; // yeah thats not real CRC, but its better than nothing for now
-			}
-		}
-		crc_verified = crc_out;
+	case 6: // checksum of the uploaded bank; the web flasher still sends this before case 7 for old firmware
+		crc_out = ota_bank_checksum();
 		out_buffer[0] = 0x07;
 		out_buffer[1] = crc_out >> 8;
 		out_buffer[2] = crc_out;
 		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 3);
 		break;
-	case 7: // when upload is done flash the firmware with this cmd
+	case 7: // when upload is done flash the firmware with this cmd: 07 C001CEED <crc hi> <crc lo>
+		// Reply 07 00 <crc hi> <crc lo> on rejection. On success the device reflashes and reboots right away.
 		if (address != 0xC001CEED || data_len < 7)
 		{
 			out_buffer[0] = 0x07;
-			out_buffer[1] = 0x00; // failure — bad magic or missing CRC
-			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
+			out_buffer[1] = 0x00;
+			out_buffer[2] = 0x00;
+			out_buffer[3] = 0x00;
+			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 4);
 			break;
 		}
+		crc_out = ota_bank_checksum();
+		if (crc_out != 0 && crc_out == ((payload[5] << 8) | payload[6]))
 		{
-			uint16_t expected_crc = (payload[5] << 8) | payload[6];
-			// Compute CRC from flash (same as case 6)
-			crc_out = 0;
-			for (int i = 0; i < OTA_MAX_SIZE; i += 0x100)
-			{
-				flash_read_page(OTA_BANK_START + i, sizeof(ramd_to_flash_temp_buffer), ramd_to_flash_temp_buffer);
-				for (int c = 0; c < 0x100; c++)
-				{
-					crc_out += ramd_to_flash_temp_buffer[c];
-				}
-			}
-			if (crc_out != 0 && crc_out == expected_crc)
-			{
-				out_buffer[0] = 0x07;
-				out_buffer[1] = 0x01; // success — about to flash and reboot
-				bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
-				write_ota_firmware_to_flash();
-			}
-			else
-			{
-				out_buffer[0] = 0x07;
-				out_buffer[1] = 0x00; // failure — CRC mismatch
-				out_buffer[2] = crc_out >> 8;
-				out_buffer[3] = crc_out & 0xFF;
-				bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 4);
-			}
+			write_ota_firmware_to_flash();
 		}
+		out_buffer[0] = 0x07;
+		out_buffer[1] = 0x00;
+		out_buffer[2] = crc_out >> 8;
+		out_buffer[3] = crc_out;
+		bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 4);
 		break;
 	}
 
