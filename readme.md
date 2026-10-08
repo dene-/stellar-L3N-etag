@@ -82,7 +82,19 @@ Until the time is set over BLE, the clock scenes show `--:--` and "Set time via 
 
 Scene code lives in `Firmware/src/epd_scenes.c` (layouts) and `epd_canvas.c` (drawing). Text uses the Spleen bitmap font, converted pixel for pixel by `tools/fonts/gen_gfx_fonts.py`. Preview layouts on your computer without flashing: `python3 tools/scene_preview/preview.py` (needs `cc` and Pillow). It writes one PNG per panel size, scene and state plus a `sheet.png` overview to your temp dir, and exits non-zero if any text or shape is clipped or overflows its box.
 
-The display driver is auto-detected from the controller family. After a reset, the BUSY pin idles low on the SSD1680 (2.9" L3N@ / 290R-N → BWR296) and high on the UC8151C (2.13" 213R-N → BWR213); no commands are sent to the panel. For other tags, or if detection picks wrong, choose the model in the web tool's display model selector (BLE `E0 <model>`); the choice is saved to flash.
+### Display models
+
+| `E0` model | Panel | Resolution | Colors | Controller family |
+| --- | --- | --- | --- | --- |
+| 0 | Auto-detect (default) | | | |
+| 1 | BW213 | 250x128 | black/white | UC8151 |
+| 2 | BWR213 (Stellar Pro 213R-N) | 250x128 | black/white/red | UC8151 |
+| 3 | BWR154 | 200x200 | black/white/red | SSD16xx |
+| 4 | 213ICE | 212x104 | black/white | SSD16xx |
+| 5 | BWR290 / BWR296 (Stellar L3N@, 290R-N) | 296x128 | black/white/red | SSD16xx |
+| 6 | BW290 / BW296 | 296x128 | black/white | SSD16xx |
+
+Auto-detection only tells the two controller families apart. After a reset, the BUSY pin idles low on SSD16xx controllers and high on UC8151 ones, so it picks model 5 or model 2; no commands are sent to the panel. Black/white panels, the 2.13" ICE and the 1.54" need their model chosen in the web tool's display model selector (BLE `E0 <model>`); the choice is saved to flash. Black/white models draw the clock scenes without red, and uploaded images keep only their black plane.
 
 ### Integrate with Apple Find My (AirTag Emulation)
 

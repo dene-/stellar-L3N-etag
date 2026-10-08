@@ -208,38 +208,22 @@ _attribute_ram_code_ uint8_t EPD_BWR_296_read_temp(void)
     return epd_ssd16xx_read_temp(&bwr_296_cfg);
 }
 
-_attribute_ram_code_ uint8_t EPD_BWR_296_Display(unsigned char *image, int size, uint8_t full_or_partial)
+// Also drives the black/white 2.9" panel (EPD_MODEL_BW296), which passes red = NULL.
+_attribute_ram_code_ uint8_t EPD_BWR_296_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
     uint8_t temp = bwr_296_init_and_read_temp();
 
     epd_ssd16xx_set_cursor(&bwr_296_cfg);
     EPD_LoadImage(image, size, 0x24);
 
-    // Clear red plane
     epd_ssd16xx_set_cursor(&bwr_296_cfg);
-    EPD_WriteCmd(0x26);
-    EPD_WriteDataRepeat(0x00, size);
-
-    if (!full_or_partial)
-        epd_ssd16xx_load_partial_lut(&bwr_296_cfg);
-
-    epd_ssd16xx_activate();
-
-    return temp;
-}
-
-_attribute_ram_code_ uint8_t EPD_BWR_296_Display_BWR(unsigned char *image, unsigned char *red_image, int size, uint8_t full_or_partial)
-{
-    if (red_image == NULL)
-        return EPD_BWR_296_Display(image, size, full_or_partial);
-
-    uint8_t temp = bwr_296_init_and_read_temp();
-
-    epd_ssd16xx_set_cursor(&bwr_296_cfg);
-    EPD_LoadImage(image, size, 0x24);
-
-    epd_ssd16xx_set_cursor(&bwr_296_cfg);
-    EPD_LoadImage(red_image, size, 0x26);
+    if (red != NULL)
+        EPD_LoadImage(red, size, 0x26);
+    else
+    {
+        EPD_WriteCmd(0x26);
+        EPD_WriteDataRepeat(0x00, size);
+    }
 
     if (!full_or_partial)
         epd_ssd16xx_load_partial_lut(&bwr_296_cfg);

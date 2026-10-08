@@ -2,7 +2,7 @@
 #include "etime.h"
 #define epd_height 128
 #define epd_width 250
-#define epd_buffer_size 4736 // max buffer size: 296*128/8 = 4736
+#define epd_buffer_size 5000 // largest panel: 200*200/8 = 5000 (BWR154); 296*128/8 = 4736
 
 // Scene ids are part of the BLE protocol (command E1 <scene>).
 enum
@@ -22,6 +22,8 @@ enum
     EPD_MODEL_BWR154 = 3,
     EPD_MODEL_BW213_ICE = 4,
     EPD_MODEL_BWR296 = 5,
+    EPD_MODEL_BW296 = 6,
+    EPD_MODEL_COUNT
 };
 
 // Auto-detection covers the tags this firmware targets: Stellar L3N@ / 290R-N (2.9", SSD1680)

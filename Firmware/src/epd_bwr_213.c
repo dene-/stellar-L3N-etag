@@ -102,64 +102,14 @@ static _attribute_ram_code_ uint8_t bwr_213_init_display(uint8_t full_or_partial
     return temp;
 }
 
-uint8_t EPD_BWR_213_Display_start(uint8_t full_or_partial)
-{
-    uint8_t temp;
-
-    EPD_WriteCmd(0x04); // power on
-    WaitMs(1);
-
-    EPD_WriteCmd(0x00);
-    EPD_WriteData(scan_direction);
-    EPD_WriteData(0x0F);
-
-    EPD_WriteCmd(0x40);
-    temp = EPD_SPI_read();
-    EPD_SPI_read();
-
-    EPD_WriteCmd(0x10);
-
-    return temp;
-}
-
-void EPD_BWR_213_Display_byte(uint8_t data)
-{
-    EPD_WriteData(data);
-}
-
-void EPD_BWR_213_Display_buffer(unsigned char *image, int size)
-{
-    EPD_WriteDataBulk(image, size);
-}
-
-void EPD_BWR_213_Display_color_change()
-{
-    EPD_WriteCmd(0x13);
-}
-
-void EPD_BWR_213_Display_end()
-{
-    EPD_WriteCmd(0x12);
-}
-
-_attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, int size, uint8_t full_or_partial)
+// red may be NULL: a full refresh clears the red RAM, a partial one keeps it.
+_attribute_ram_code_ uint8_t EPD_BWR_213_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
     uint8_t temp = bwr_213_init_display(full_or_partial);
 
     EPD_LoadImage(image, size, 0x10);
-    EPD_WriteCmd(0x12);
-
-    return temp;
-}
-
-_attribute_ram_code_ uint8_t EPD_BWR_213_Display_BWR(unsigned char *image, unsigned char *redimage, int size, uint8_t full_or_partial)
-{
-    uint8_t temp = bwr_213_init_display(full_or_partial);
-
-    if (image != NULL)
-        EPD_LoadImage(image, size, 0x10);
-    if (redimage != NULL)
-        EPD_LoadImage(redimage, size, 0x13);
+    if (red != NULL)
+        EPD_LoadImage(red, size, 0x13);
 
     EPD_WriteCmd(0x12);
 

@@ -133,7 +133,7 @@ _attribute_ram_code_ uint8_t EPD_BW_213_ice_read_temp(void)
     return epd_ssd16xx_read_temp(&bw_213_ice_cfg);
 }
 
-_attribute_ram_code_ uint8_t EPD_BW_213_ice_Display(unsigned char *image, int size, uint8_t full_or_partial)
+_attribute_ram_code_ uint8_t EPD_BW_213_ice_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
     uint8_t temp;
 

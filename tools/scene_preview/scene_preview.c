@@ -5,7 +5,7 @@
 #include <string.h>
 #include "epd_scenes.h"
 
-#define MAX_PLANE (296 * 128 / 8)
+#define MAX_PLANE (200 * 200 / 8)
 
 typedef struct
 {
@@ -29,8 +29,11 @@ typedef struct
 
 static const panel_t panels[] = {
     {"bwr296x128", 296, 128, 1},
+    {"bw296x128", 296, 128, 0},
     {"bwr250x128", 250, 128, 1},
+    {"bw250x128", 250, 128, 0},
     {"bw212x104", 212, 104, 0},
+    {"bwr200x200", 200, 200, 1},
 };
 
 // Covers the widest strings each layout must hold: 3-digit negative temperature, "Wednesday",

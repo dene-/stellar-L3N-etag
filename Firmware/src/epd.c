@@ -7,7 +7,7 @@
 #include "epd_bw_213.h"
 #include "epd_bwr_213.h"
 #include "epd_bw_213_ice.h"
-// #include "epd_bwr_154.h"
+#include "epd_bwr_154.h"
 #include "epd_bwr_296.h"
 #include "drivers.h"
 #include "stack/ble/ble.h"
@@ -21,8 +21,30 @@
 
 #include "TIFF_G4.h"
 
-RAM uint8_t epd_model = 0; // 0 = Undetected, 1 = BW213, 2 = BWR213_PRO, 3 = BWR154, 4 = BW213ICE, 5 = BWR290/BWR296
-const char *epd_model_string[] = {"NC", "BW213", "BWR213", "BWR154", "213ICE", "BWR290"};
+typedef struct
+{
+    const char *name;
+    uint16_t width;
+    uint16_t height;
+    uint8_t has_red;
+    uint8_t busy_active_low; // UC8151 family: BUSY low while refreshing; SSD16xx: high
+    uint8_t (*read_temp)(void);
+    uint8_t (*display)(unsigned char *black, unsigned char *red, int size, uint8_t full_or_partial); // red may be NULL
+    void (*sleep)(void);
+} epd_model_info_t;
+
+// Index = EPD_MODEL_* id. The AUTO entry only provides the geometry used before detection.
+static const epd_model_info_t epd_models[EPD_MODEL_COUNT] = {
+    [EPD_MODEL_AUTO] = {"AUTO", epd_width, epd_height, 0, 0, NULL, NULL, NULL},
+    [EPD_MODEL_BW213] = {"BW213", 250, 128, 0, 1, EPD_BW_213_read_temp, EPD_BW_213_Display, EPD_BW_213_set_sleep},
+    [EPD_MODEL_BWR213] = {"BWR213", 250, 128, 1, 1, EPD_BWR_213_read_temp, EPD_BWR_213_Display, EPD_BWR_213_set_sleep},
+    [EPD_MODEL_BWR154] = {"BWR154", 200, 200, 1, 0, EPD_BWR_154_read_temp, EPD_BWR_154_Display, EPD_BWR_154_set_sleep},
+    [EPD_MODEL_BW213_ICE] = {"213ICE", 212, 104, 0, 0, EPD_BW_213_ice_read_temp, EPD_BW_213_ice_Display, EPD_BW_213_ice_set_sleep},
+    [EPD_MODEL_BWR296] = {"BWR296", 296, 128, 1, 0, EPD_BWR_296_read_temp, EPD_BWR_296_Display, EPD_BWR_296_set_sleep},
+    [EPD_MODEL_BW296] = {"BW296", 296, 128, 0, 0, EPD_BWR_296_read_temp, EPD_BWR_296_Display, EPD_BWR_296_set_sleep},
+};
+
+RAM uint8_t epd_model = EPD_MODEL_AUTO;
 RAM uint8_t epd_update_state = 0;
 
 RAM uint8_t epd_scene = EPD_SCENE_DASHBOARD;
@@ -53,88 +75,23 @@ RAM uint32_t slideshow_last_switch = 0;
 
 extern settings_struct settings;
 
-static uint8_t epd_is_fast_refresh_supported_model(uint8_t model_nr)
-{
-    switch (model_nr)
-    {
-    case 1:
-    case 2:
-    case 4:
-    case 5:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
+// Fast refresh mode turns every update into a partial one.
 static uint8_t epd_resolve_refresh_mode(uint8_t full_or_partial)
 {
-    if (!epd_model)
-    {
-        EPD_detect_model();
-    }
-
-    if (!settings.fast_refresh_enabled)
-    {
-        return full_or_partial;
-    }
-
-    if (!epd_is_fast_refresh_supported_model(epd_model))
-    {
-        return full_or_partial;
-    }
-
-    return 0;
+    return settings.fast_refresh_enabled ? 0 : full_or_partial;
 }
 
-static void epd_get_resolution_for_model(uint8_t model_nr, uint16_t *width, uint16_t *height)
+static uint16_t epd_model_buffer_size(uint8_t model_nr)
 {
-    if (width == NULL || height == NULL)
-    {
-        return;
-    }
-
-    switch (model_nr)
-    {
-    case 1:
-    case 2:
-        *width = 250;
-        *height = 128;
-        break;
-    case 3:
-        *width = 200;
-        *height = 200;
-        break;
-    case 4:
-        *width = 212;
-        *height = 104;
-        break;
-    case 5:
-        *width = 296;
-        *height = 128;
-        break;
-    default:
-        *width = epd_width;
-        *height = epd_height;
-        break;
-    }
-}
-
-static uint16_t epd_get_model_buffer_size(uint8_t model_nr)
-{
-    uint16_t width = 0;
-    uint16_t height = 0;
-
-    epd_get_resolution_for_model(model_nr, &width, &height);
-    return (width * height) / 8;
+    return (uint16_t)(epd_models[model_nr].width * epd_models[model_nr].height / 8);
 }
 
 // Selects the display driver and remembers it in settings (persisted by the caller);
-// EPD_MODEL_AUTO detects the panel on next use.
+// EPD_MODEL_AUTO (or an unknown id) detects the panel family on next use.
 void set_EPD_model(uint8_t model_nr)
 {
-    epd_model = model_nr;
-    settings.epd_model = model_nr;
+    epd_model = (model_nr < EPD_MODEL_COUNT) ? model_nr : EPD_MODEL_AUTO;
+    settings.epd_model = epd_model;
     epd_temperature_is_read = 0;
     epd_temperature_read_time = 0;
     set_EPD_wait_flush(); // new resolution: redraw the scene with a full refresh
@@ -155,14 +112,10 @@ uint8_t get_EPD_fast_refresh_enabled(void)
     return settings.fast_refresh_enabled ? 1 : 0;
 }
 
+// Every driver in epd_models[] implements partial refresh.
 uint8_t get_EPD_fast_refresh_supported(void)
 {
-    if (!epd_model)
-    {
-        EPD_detect_model();
-    }
-
-    return epd_is_fast_refresh_supported_model(epd_model);
+    return 1;
 }
 
 // With this we can force a display if it wasnt detected correctly
@@ -184,12 +137,6 @@ void set_EPD_scene(uint8_t scene)
 void set_EPD_wait_flush()
 {
     epd_wait_update = 1;
-}
-
-// UC8151-family controllers signal busy with BUSY low and idle high; SSD16xx controllers the opposite.
-static uint8_t epd_model_is_uc8151(uint8_t model_nr)
-{
-    return model_nr == EPD_MODEL_BW213 || model_nr == EPD_MODEL_BWR213;
 }
 
 // Auto-detection (EPD_MODEL_AUTO) by controller family, read passively from the idle level of
@@ -220,7 +167,7 @@ _attribute_ram_code_ void EPD_detect_model(void)
     epd_model = (idle_high > 8) ? EPD_MODEL_BWR213 : EPD_MODEL_BWR296;
 
     uart_puts("Detected :");
-    uart_puts(epd_model_string[epd_model]);
+    uart_puts(epd_models[epd_model].name);
     uart_puts("\r\n");
 
     EPD_POWER_OFF();
@@ -248,14 +195,7 @@ _attribute_ram_code_ int8_t EPD_read_temp(void)
     gpio_write(EPD_RESET, 1);
     WaitMs(10);
 
-    if (epd_model == 1)
-        epd_temperature = EPD_BW_213_read_temp();
-    else if (epd_model == 2)
-        epd_temperature = EPD_BWR_213_read_temp();
-    else if (epd_model == 4)
-        epd_temperature = EPD_BW_213_ice_read_temp();
-    else if (epd_model == 5)
-        epd_temperature = EPD_BWR_296_read_temp();
+    epd_temperature = epd_models[epd_model].read_temp();
 
     EPD_POWER_OFF();
 
@@ -286,17 +226,10 @@ _attribute_ram_code_ void EPD_Display(unsigned char *image, unsigned char *red_i
     gpio_write(EPD_RESET, 1);
     WaitMs(10);
 
-    if (epd_model == 1)
-        epd_temperature = EPD_BW_213_Display(image, size, full_or_partial);
-    else if (epd_model == 2)
-        epd_temperature = EPD_BWR_213_Display_BWR(image, red_image, size, full_or_partial);
-    // else if (epd_model == 3)
-    //     epd_temperature = EPD_BWR_154_Display(image, size, full_or_partial);
-    else if (epd_model == 4)
-        epd_temperature = EPD_BW_213_ice_Display(image, size, full_or_partial);
-    else if (epd_model == 5)
-        epd_temperature = EPD_BWR_296_Display_BWR(image, red_image, size, full_or_partial);
-    // epd_temperature = EPD_BWR_296_Display(image, size, full_or_partial);
+    // Black/white panels sharing a BWR driver must get a blank red RAM, whatever the caller drew.
+    if (!epd_models[epd_model].has_red)
+        red_image = NULL;
+    epd_temperature = epd_models[epd_model].display(image, red_image, size, full_or_partial);
 
     epd_temperature_is_read = 1;
     epd_temperature_read_time = get_unix_time();
@@ -308,33 +241,16 @@ _attribute_ram_code_ void epd_set_sleep(void)
     if (!epd_model)
         EPD_detect_model();
 
-    if (epd_model == 1)
-        EPD_BW_213_set_sleep();
-    else if (epd_model == 2)
-        EPD_BWR_213_set_sleep();
-    //    else if (epd_model == 3)
-    //        EPD_BWR_154_set_sleep();
-    else if (epd_model == 4)
-        EPD_BW_213_ice_set_sleep();
-    else if (epd_model == 5)
-        EPD_BWR_296_set_sleep();
-
+    epd_models[epd_model].sleep();
     EPD_POWER_OFF();
     epd_update_state = 0;
 }
 
 _attribute_ram_code_ uint8_t epd_state_handler(void)
 {
-    switch (epd_update_state)
-    {
-    case 0:
-        // Nothing todo
-        break;
-    case 1: // check if refresh is done and sleep epd if so
-        if (epd_model_is_uc8151(epd_model) ? !EPD_IS_BUSY() : EPD_IS_BUSY())
-            epd_set_sleep();
-        break;
-    }
+    // EPD_IS_BUSY() reads BUSY as active low (UC8151); SSD16xx drive it active high.
+    if (epd_update_state && (epd_models[epd_model].busy_active_low ? !EPD_IS_BUSY() : EPD_IS_BUSY()))
+        epd_set_sleep();
     return epd_update_state;
 }
 
@@ -393,11 +309,6 @@ _attribute_ram_code_ void epd_clear(void)
     memset(epd_buffer_red, 0x00, epd_buffer_size);
 }
 
-static uint8_t epd_model_has_red(uint8_t model_nr)
-{
-    return model_nr == 2 || model_nr == 3 || model_nr == 5;
-}
-
 // FNV-1a
 static uint32_t epd_hash(const uint8_t *data, uint16_t size)
 {
@@ -446,7 +357,7 @@ static void epd_update_clock_scene(epd_scene_draw_fn draw, struct date_time time
     size = (uint16_t)(width * height / 8);
 
     epd_fill_scene_data(&data, time, battery_mv, temperature);
-    epd_canvas_init(&canvas, epd_buffer, epd_buffer_red, width, height, epd_model_has_red(epd_model));
+    epd_canvas_init(&canvas, epd_buffer, epd_buffer_red, width, height, epd_models[epd_model].has_red);
     draw(&canvas, &data);
 
     black_hash = epd_hash(epd_buffer, size);
@@ -531,22 +442,26 @@ void epd_update(struct date_time _time, uint16_t battery_mv, int16_t temperature
     }
 }
 
+// Unknown model ids report 0x0 / 0 bytes so callers can reject them.
 void epd_get_resolution(uint8_t model_nr, uint16_t *width, uint16_t *height)
 {
-    epd_get_resolution_for_model(model_nr, width, height);
+    uint8_t known = model_nr < EPD_MODEL_COUNT;
+
+    *width = known ? epd_models[model_nr].width : 0;
+    *height = known ? epd_models[model_nr].height : 0;
 }
 
 void epd_get_current_resolution(uint16_t *width, uint16_t *height)
 {
-    epd_get_resolution_for_model(epd_model, width, height);
+    epd_get_resolution(epd_model, width, height);
 }
 
 uint16_t epd_get_buffer_size_for_model(uint8_t model_nr)
 {
-    return epd_get_model_buffer_size(model_nr);
+    return model_nr < EPD_MODEL_COUNT ? epd_model_buffer_size(model_nr) : 0;
 }
 
 uint16_t epd_get_current_buffer_size(void)
 {
-    return epd_get_model_buffer_size(epd_model);
+    return epd_model_buffer_size(epd_model);
 }

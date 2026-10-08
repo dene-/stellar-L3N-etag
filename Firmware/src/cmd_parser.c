@@ -87,7 +87,7 @@ _attribute_ram_code_ void cmd_parser(void *p)
 	}
 	else if (inData == 0xE0)
 	{ // select the display driver (EPD_MODEL_*); 0 = auto-detect. Persisted.
-		if (payload_len < 2 || payload[1] > EPD_MODEL_BWR296)
+		if (payload_len < 2 || payload[1] >= EPD_MODEL_COUNT)
 			return;
 		set_EPD_model(payload[1]);
 		settings_dirty = 1;

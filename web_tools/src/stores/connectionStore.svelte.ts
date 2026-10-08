@@ -24,7 +24,8 @@ export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
 	{ model: 2, name: 'BWR213', width: 250, height: 128 },
 	{ model: 3, name: 'BWR154', width: 200, height: 200 },
 	{ model: 4, name: '213ICE', width: 212, height: 104 },
-	{ model: 5, name: 'BWR290 / BWR296', width: 296, height: 128 }
+	{ model: 5, name: 'BWR290 / BWR296', width: 296, height: 128 },
+	{ model: 6, name: 'BW290 / BW296', width: 296, height: 128 }
 ];
 
 const DISPLAY_MODEL_MAP = new Map(DISPLAY_MODEL_OPTIONS.map((info) => [info.model, info]));

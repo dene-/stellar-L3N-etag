@@ -35,28 +35,6 @@ BWR_154_Len, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
 };
 
-#define EPD_BWR_154_test_pattern 0xA5
-_attribute_ram_code_ uint8_t EPD_BWR_154_detect(void)
-{
-    // SW Reset
-    EPD_WriteCmd(0x12);
-    WaitMs(10);
-
-    EPD_WriteCmd(0x32);
-    int i;
-    for (i = 0; i < 65; i++)// This controller has a <100 bytes LUT storage so we test if thats existing.
-    {
-        EPD_WriteData(EPD_BWR_154_test_pattern);
-    }
-    EPD_WriteCmd(0x33);
-    for (i = 0; i < 65; i++)
-    {
-        if(EPD_SPI_read() != EPD_BWR_154_test_pattern)
-            return 0;
-    }
-    return 1;
-}
-
 _attribute_ram_code_ uint8_t EPD_BWR_154_read_temp(void)
 {
     uint8_t epd_temperature = 0 ;
@@ -118,7 +96,7 @@ _attribute_ram_code_ uint8_t EPD_BWR_154_read_temp(void)
     return epd_temperature;
 }
 
-_attribute_ram_code_ uint8_t EPD_BWR_154_Display(unsigned char *image, int size, uint8_t full_or_partial)
+_attribute_ram_code_ uint8_t EPD_BWR_154_Display(unsigned char *image, unsigned char *red, int size, uint8_t full_or_partial)
 {
     uint8_t epd_temperature = 0 ;
     
@@ -193,11 +171,13 @@ _attribute_ram_code_ uint8_t EPD_BWR_154_Display(unsigned char *image, int size,
     EPD_WriteData(0xc7);
     EPD_WriteData(0x00);
 
-    EPD_WriteCmd(0x26);// RED Color TODO make something out of it :)
     int i;
-    for (i = 0; i < size; i++)
+    if (red != NULL)
+        EPD_LoadImage(red, size, 0x26);
+    else
     {
-        EPD_WriteData(0x00);
+        EPD_WriteCmd(0x26);
+        EPD_WriteDataRepeat(0x00, size);
     }
 
     if (!full_or_partial)
