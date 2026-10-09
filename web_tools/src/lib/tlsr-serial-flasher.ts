@@ -7,6 +7,8 @@ type SerialPortLike = {
 	}): Promise<void>;
 	close(): Promise<void>;
 	setSignals(signals: { dataTerminalReady: boolean; requestToSend: boolean }): Promise<void>;
+	addEventListener(type: 'disconnect', listener: () => void): void;
+	removeEventListener(type: 'disconnect', listener: () => void): void;
 	writable: WritableStream<Uint8Array>;
 };
 
@@ -37,11 +39,24 @@ function hex(number: number, length: number) {
 	return out;
 }
 
+// Images are written from address 0 and must stay below the image store (0x40000, see
+// Firmware/src/infrastructure/storage/image_store.c); anything longer would overwrite the MAC
+// (0x76000), calibration (0x77000) and settings (0x78100) further up.
+export const SERIAL_MAX_FIRMWARE_SIZE = 0x40000;
+
 export class TlsrSerialFlasher {
 	private port: SerialPortLike | null = null;
 	private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
 
 	constructor(private callbacks: SerialFlasherCallbacks) {}
+
+	// The adapter was unplugged: the streams are gone and there is nothing left to close.
+	private readonly onPortDisconnect = () => {
+		if (!this.port) return;
+		this.forgetPort();
+		this.callbacks.log('USB-COM disconnected.');
+		this.callbacks.onConnectionChange?.(false);
+	};
 
 	static isSupported() {
 		return 'serial' in navigator;
@@ -58,34 +73,56 @@ export class TlsrSerialFlasher {
 			throw new Error('Web Serial is not available in this browser.');
 		}
 
-		this.port = await serialApi.requestPort();
+		const port = await serialApi.requestPort();
+		this.port = port;
 
-		await this.port.open({
-			baudRate,
-			baudrate: baudRate,
-			bufferSize: 240,
-			buffersize: 240
-		});
-
-		this.writer = this.port.writable.getWriter();
-		await this.port.setSignals({ dataTerminalReady: false, requestToSend: false });
+		try {
+			await port.open({
+				baudRate,
+				baudrate: baudRate,
+				bufferSize: 240,
+				buffersize: 240
+			});
+			port.addEventListener('disconnect', this.onPortDisconnect);
+			this.writer = port.writable.getWriter();
+			await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+		} catch (error) {
+			// Leave nothing half open: the next attempt starts from a closed port.
+			this.forgetPort();
+			await port.close().catch(() => undefined);
+			throw error;
+		}
 
 		this.callbacks.log('USB-COM opened.');
 		this.callbacks.onConnectionChange?.(true);
 	}
 
 	async close() {
+		const port = this.port;
 		try {
 			await this.writer?.close();
 		} finally {
-			this.writer = null;
-			if (this.port) {
-				await this.port.close();
-				this.port = null;
+			// The port can only be closed once the writer's lock is released.
+			this.forgetPort();
+			try {
+				await port?.close();
+			} finally {
+				this.callbacks.log('USB-COM closed.');
+				this.callbacks.onConnectionChange?.(false);
 			}
-			this.callbacks.log('USB-COM closed.');
-			this.callbacks.onConnectionChange?.(false);
 		}
+	}
+
+	// Drops the port and releases the writer lock without touching the hardware.
+	private forgetPort() {
+		this.port?.removeEventListener('disconnect', this.onPortDisconnect);
+		try {
+			this.writer?.releaseLock();
+		} catch {
+			// the stream already errored with the port
+		}
+		this.writer = null;
+		this.port = null;
 	}
 
 	async flashFirmware(firmware: Uint8Array, activationTimeMs: number) {

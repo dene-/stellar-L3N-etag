@@ -13,6 +13,7 @@ $(OUT_PATH)/domain/bwry.o \
 $(OUT_PATH)/domain/calendar.o \
 $(OUT_PATH)/domain/clock_calibration.o \
 $(OUT_PATH)/domain/clock_schedule.o \
+$(OUT_PATH)/domain/crc32.o \
 $(OUT_PATH)/domain/device_name.o \
 $(OUT_PATH)/domain/epd_canvas.o \
 $(OUT_PATH)/domain/epd_scenes.o \
@@ -20,6 +21,7 @@ $(OUT_PATH)/domain/firmware_image.o \
 $(OUT_PATH)/domain/panel.o \
 $(OUT_PATH)/domain/period.o \
 $(OUT_PATH)/domain/refresh_policy.o \
+$(OUT_PATH)/domain/settings_log.o \
 $(OUT_PATH)/domain/slideshow.o \
 $(OUT_PATH)/domain/temperature.o \
 $(OUT_PATH)/domain/time_zone.o \
@@ -27,6 +29,7 @@ $(OUT_PATH)/application/device_settings.o \
 $(OUT_PATH)/application/display.o \
 $(OUT_PATH)/application/image_upload.o \
 $(OUT_PATH)/application/local_time.o \
+$(OUT_PATH)/application/power.o \
 $(OUT_PATH)/application/screen.o \
 $(OUT_PATH)/application/status_led.o \
 $(OUT_PATH)/application/telemetry.o \

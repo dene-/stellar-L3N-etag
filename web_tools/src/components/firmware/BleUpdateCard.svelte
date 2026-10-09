@@ -58,7 +58,20 @@
 			>
 				<span style="width: {store.firmwareUploadProgress}%"></span>
 			</div>
-			<p class="text-sm text-muted">Keep this page open and the tag close by.</p>
+			<div class="flex items-center justify-between gap-3">
+				<p class="text-sm text-muted">Keep this page open and the tag close by.</p>
+				<button
+					class="btn btn-text"
+					disabled={!store.cancellable || store.cancelling}
+					onclick={() => store.cancelTransfer()}
+				>
+					{store.cancelling ? 'Cancelling…' : 'Cancel'}
+				</button>
+			</div>
+		{:else if store.firmwareUpdateResult}
+			<p class="text-sm {store.firmwareUpdateResult.ok ? 'text-ok' : 'text-danger'}" role="status">
+				{store.firmwareUpdateResult.message}
+			</p>
 		{/if}
 	</div>
 </section>

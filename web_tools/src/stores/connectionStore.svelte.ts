@@ -2,6 +2,7 @@ import { logStore } from './logStore.svelte';
 import { intToHex, bytesToHex, hexToBytes } from '#lib/utils.ts';
 import { buildSetTimeCommand } from '#lib/time-sync.ts';
 import { FLASH_IMAGE_STORAGE_BYTES } from '#lib/photo-utils.ts';
+import { crc32 } from '#lib/crc32.ts';
 
 type DisplaySource = 'default' | 'firmware' | 'manual' | 'name';
 
@@ -19,6 +20,8 @@ type StoredImageBuffers = {
 	black: Uint8Array;
 	red: Uint8Array;
 };
+// Outcome of the last image upload or Bluetooth update, for the page to show next to the transfer.
+export type TransferResult = { ok: boolean; message: string };
 
 // Heights are visible rows; the 2.13" controllers keep 128 rows per column (see canvas2bytes).
 export const DISPLAY_MODEL_OPTIONS: DisplayModelInfo[] = [
@@ -78,6 +81,37 @@ export const OTA_MAX_FIRMWARE_SIZE = OTA_BANK_SIZE - 0x100;
 // is only noticed after the supervision timeout the firmware requests (20 s), so allow more than both.
 const OTA_REBOOT_TIMEOUT_MS = 45000;
 
+// Image chunks and OTA 08 writes carry their own offset, so writing one twice does no harm and a
+// failed write is tried again.
+const WRITE_RETRIES = 3;
+const WRITE_RETRY_DELAY_MS = 200;
+const WRITE_TIMEOUT_MS = 10000;
+
+// Percentage the tag's own battery curve (Firmware/src/domain/battery.c, {2440 mV, 6 %} to
+// {2100 mV, 0 %}) gives at BATTERY_FLASH_MIN_MV, 2400 mV, the lowest voltage at which the tag still
+// writes flash: 6 * (2400 - 2100) / (2440 - 2100) = 5. Below 5 % the voltage is below that limit.
+// The tag checks the voltage itself; this only spares a transfer it would refuse.
+const MIN_FLASH_BATTERY_PERCENT = 5;
+const BATTERY_TOO_LOW_FOR_PICTURES = 'Battery too low to store pictures; replace the battery.';
+const BATTERY_TOO_LOW_FOR_UPDATE = 'Battery too low to install the update; replace the battery.';
+
+function delay(ms: number) {
+	return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function errorMessage(e: unknown) {
+	return e instanceof Error ? e.message : String(e);
+}
+
+class WriteTimeoutError extends Error {
+	constructor() {
+		super('The tag did not acknowledge a write in time.');
+	}
+}
+
+// Thrown at the next chunk after the user pressed Cancel.
+class TransferCancelled extends Error {}
+
 function resolveDisplayModel(model: number): DisplayModelInfo {
 	return DISPLAY_MODEL_MAP.get(model) ?? DEFAULT_DISPLAY_INFO;
 }
@@ -132,6 +166,14 @@ class BleConnectionStore {
 	imageUploadProgress = $state(0);
 	isFlashingFirmware = $state(false);
 	isUploadingImages = $state(false);
+	// Set when a transfer ends, until the next one starts or another tag is chosen.
+	imageUploadResult: TransferResult | null = $state(null);
+	firmwareUpdateResult: TransferResult | null = $state(null);
+	// A transfer can be cancelled while it only sends data; cancelling is set once Cancel was pressed.
+	cancellable = $state(false);
+	cancelling = $state(false);
+	// Every GATT write waits for the one before it, see enqueue().
+	private gattQueue: Promise<unknown> = Promise.resolve();
 	connectedDeviceName = $state('');
 	// Panel the device drives (resolved by detection); sizes rendered images.
 	deviceModel = $state(DEFAULT_DISPLAY_INFO.model);
@@ -168,6 +210,12 @@ class BleConnectionStore {
 	// A transfer holds the link; other commands wait until it is done.
 	get busy() {
 		return this.isFlashingFirmware || this.isUploadingImages;
+	}
+
+	// The controls that send commands are off while a transfer runs and while the first queries of a
+	// new connection are still going out.
+	get commandsBlocked() {
+		return this.busy || this.connecting;
 	}
 
 	private applyDisplayModelInfo(info: DisplayModelInfo, source: DisplaySource) {
@@ -227,6 +275,8 @@ class BleConnectionStore {
 			this.bleDevice?.removeEventListener('gattserverdisconnected', this.onGattDisconnected);
 			device.addEventListener('gattserverdisconnected', this.onGattDisconnected);
 			this.bleDevice = device;
+			this.imageUploadResult = null;
+			this.firmwareUpdateResult = null;
 
 			this.connectedDeviceName = device.name ?? 'Unknown device';
 
@@ -404,9 +454,7 @@ class BleConnectionStore {
 		// Allow BLE connection parameters and CCCD writes to stabilise
 		// before querying the device, otherwise the firmware may silently
 		// drop the notification response.
-		const { promise: settled, resolve } = Promise.withResolvers<void>();
-		setTimeout(resolve, 600);
-		await settled;
+		await delay(600);
 		await this.queryDisplayInfo();
 		await this.syncTime();
 		// One more round trip after E8: a version reply would have arrived by now.
@@ -457,7 +505,7 @@ class BleConnectionStore {
 		const command = buildSetTimeCommand(new Date());
 		logStore.addLog(`Setting the time: ${new Date().toLocaleString()}`);
 		try {
-			await this.rxtxCharacteristic.writeValueWithResponse(command);
+			await this.writeValue(this.rxtxCharacteristic, command);
 			this.timeSyncedAt = new Date();
 		} catch (e) {
 			await handleError(e);
@@ -544,6 +592,65 @@ class BleConnectionStore {
 		await this.sendRxTxCommand(`b1${intToHex(byte & 0xff, 1)}`);
 	}
 
+	// Queues a GATT operation behind the ones before it. The browser allows one at a time and fails
+	// the next with "GATT operation already in progress", which the Device page controls, the time
+	// sync and a running transfer would otherwise hit when they overlap. The queue never rejects;
+	// the caller gets the operation's own result.
+	private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+		const result = this.gattQueue.then(operation);
+		this.gattQueue = result.catch(() => undefined);
+		return result;
+	}
+
+	// One write with response, after the queued ones. A write the tag doesn't acknowledge in time
+	// fails with WriteTimeoutError and frees the queue; the browser may still settle it later.
+	private writeValue(
+		characteristic: BluetoothRemoteGATTCharacteristic,
+		packet: Uint8Array,
+		timeoutMs = WRITE_TIMEOUT_MS
+	): Promise<void> {
+		return this.enqueue(async () => {
+			const { promise: timedOut, reject } = Promise.withResolvers<never>();
+			const timer = setTimeout(() => reject(new WriteTimeoutError()), timeoutMs);
+			try {
+				await Promise.race([
+					characteristic.writeValueWithResponse(packet as BufferSource),
+					timedOut
+				]);
+			} finally {
+				clearTimeout(timer);
+			}
+		});
+	}
+
+	// For writes that carry their own offset: writing one again changes nothing, so a failed write is
+	// tried again. Gives up when the link is gone or Cancel was pressed.
+	private async writeWithRetry(
+		characteristic: BluetoothRemoteGATTCharacteristic,
+		packet: Uint8Array
+	) {
+		for (let attempt = 1; ; attempt++) {
+			this.throwIfCancelled();
+			try {
+				await this.writeValue(characteristic, packet);
+				return;
+			} catch (e) {
+				if (attempt > WRITE_RETRIES || !this.bleDevice?.gatt?.connected) throw e;
+				logStore.addLog(`Write failed (${errorMessage(e)}); trying again.`);
+				await delay(WRITE_RETRY_DELAY_MS);
+			}
+		}
+	}
+
+	// Asks to stop the running image upload or Bluetooth update before its next chunk.
+	cancelTransfer() {
+		if (this.cancellable) this.cancelling = true;
+	}
+
+	private throwIfCancelled() {
+		if (this.cancelling) throw new TransferCancelled();
+	}
+
 	// Errors are logged, not thrown: the UI buttons call this without handling failures. Returns
 	// whether the write went through.
 	private async sendRxTxCommand(command: string): Promise<boolean> {
@@ -553,7 +660,7 @@ class BleConnectionStore {
 		}
 		logStore.addLog(`Sending RXTX command: ${command}`);
 		try {
-			await this.rxtxCharacteristic.writeValueWithResponse(hexToBytes(command) as BufferSource);
+			await this.writeValue(this.rxtxCharacteristic, hexToBytes(command));
 			return true;
 		} catch (e) {
 			await handleError(e);
@@ -561,7 +668,12 @@ class BleConnectionStore {
 		}
 	}
 
+	private imageUploadFailed(message: string) {
+		this.imageUploadResult = { ok: false, message };
+	}
+
 	async uploadImageSet(images: StoredImageBuffers[], intervalSeconds: number): Promise<void> {
+		if (this.busy) return;
 		// Held for the whole upload: a dropped link makes its writes fail instead of hitting null.
 		const rxtx = this.rxtxCharacteristic;
 		if (!rxtx) {
@@ -582,18 +694,82 @@ class BleConnectionStore {
 		const slideshowInterval =
 			images.length > 1 ? Math.min(0xffff, Math.max(1, Math.round(intervalSeconds) || 60)) : 0;
 
+		this.imageUploadResult = null;
 		if (totalBytes > FLASH_IMAGE_STORAGE_BYTES) {
-			throw new Error('Selected images exceed the MCU flash space reserved for photos.');
+			logStore.addLog('Selected images exceed the MCU flash space reserved for photos.');
+			this.imageUploadFailed('The pictures are too large for the tag.');
+			return;
+		}
+		if (
+			images.some((image) => image.black.length !== planeSize || image.red.length !== planeSize)
+		) {
+			logStore.addLog('All rendered images must share the same display size.');
+			this.imageUploadFailed('The pictures do not share one size.');
+			return;
+		}
+		if (this.batteryPercent !== null && this.batteryPercent < MIN_FLASH_BATTERY_PERCENT) {
+			logStore.addLog(`Battery at ${this.batteryPercent}%: upload not started.`);
+			this.imageUploadFailed(BATTERY_TOO_LOW_FOR_PICTURES);
+			return;
 		}
 
+		// The device checks the stored data against this when it commits the upload: every plane in
+		// stored order, black then red, including the stretches the chunks below skip.
+		let imagesCrc = 0;
 		for (const image of images) {
-			if (image.black.length !== planeSize || image.red.length !== planeSize) {
-				throw new Error('All rendered images must share the same display size.');
-			}
+			imagesCrc = crc32(image.black, imagesCrc);
+			imagesCrc = crc32(image.red, imagesCrc);
 		}
 
+		// Nothing above awaits, so a second click finds the flag already up.
 		this.isUploadingImages = true;
 		this.imageUploadProgress = 0;
+		this.cancelling = false;
+		this.cancellable = false;
+		let cancelled = false;
+
+		try {
+			await this.sendImageSet(rxtx, images, {
+				planeSize,
+				chunkSize,
+				uploadModel,
+				slideshowInterval,
+				imagesCrc
+			});
+		} catch (e) {
+			if (e instanceof TransferCancelled) {
+				cancelled = true;
+				logStore.addLog('Upload cancelled.');
+				this.imageUploadFailed('Upload cancelled. Send the pictures again to show them.');
+			} else {
+				await handleError(e);
+				this.imageUploadFailed(`Upload failed: ${errorMessage(e)}`);
+			}
+		} finally {
+			this.cancellable = false;
+			this.cancelling = false;
+			this.isUploadingImages = false;
+		}
+
+		// Show what the tag holds now, whichever way the upload ended.
+		if (cancelled) {
+			await this.sendRxTxCommand('e9aa');
+			await this.sendRxTxCommand('e1aa');
+		}
+	}
+
+	private async sendImageSet(
+		rxtx: BluetoothRemoteGATTCharacteristic,
+		images: StoredImageBuffers[],
+		upload: {
+			planeSize: number;
+			chunkSize: number;
+			uploadModel: number;
+			slideshowInterval: number;
+			imagesCrc: number;
+		}
+	) {
+		const { planeSize, chunkSize, uploadModel, slideshowInterval, imagesCrc } = upload;
 		this.suppressE5Notifications = true;
 		let uploadAborted = false;
 
@@ -608,16 +784,18 @@ class BleConnectionStore {
 			}
 		};
 		rxtx.addEventListener('characteristicvaluechanged', chunkFailureListener);
+		// E5 00 and E5 02 answer with 3 bytes, or 4 when the tag gives a reason for refusing.
 		const isReplyTo = (subcommand: number) => (d: Uint8Array) =>
-			d.length === 3 && d[0] === 0xe5 && d[1] === subcommand;
+			d.length >= 3 && d[0] === 0xe5 && d[1] === subcommand;
 
 		try {
 			const start = Date.now();
 			logStore.addLog(`Preparing persistent upload for ${images.length} image(s)...`);
 
-			// E5 00: the device makes room for the images and replies E5 00 <ok>. Firmware before
-			// v0.13.0 erases the whole image flash here (a few seconds); later firmware erases each
-			// sector when the first chunk reaches it.
+			// E5 00: the device makes room for the images and replies E5 00 <ok>, or E5 00 00 01 when
+			// the battery is too low to write flash. Firmware before v0.13.0 erases the whole image
+			// flash here (a few seconds); later firmware erases each sector when the first chunk
+			// reaches it.
 			const prepared = await this.writeAndAwaitReply(
 				rxtx,
 				new Uint8Array([
@@ -632,16 +810,24 @@ class BleConnectionStore {
 				15000
 			);
 			if (!prepared || prepared[2] !== 0x01) {
-				logStore.addLog(
-					prepared
-						? 'Device rejected the prepare command (model or image count). Upload aborted.'
-						: 'Device did not answer the prepare command. Upload aborted.'
-				);
+				if (prepared && prepared.length >= 4 && prepared[3] === 0x01) {
+					logStore.addLog('Device refused the upload: battery too low.');
+					this.imageUploadFailed(BATTERY_TOO_LOW_FOR_PICTURES);
+				} else if (prepared) {
+					logStore.addLog(
+						'Device rejected the prepare command (model or image count). Upload aborted.'
+					);
+					this.imageUploadFailed('The tag refused the pictures (display model or count).');
+				} else {
+					logStore.addLog('Device did not answer the prepare command. Upload aborted.');
+					this.imageUploadFailed('The tag did not answer. Try again.');
+				}
 				return;
 			}
 
 			const totalChunks = images.length * 2 * Math.ceil(planeSize / chunkSize);
 			let chunksDone = 0;
+			this.cancellable = true;
 
 			for (const [index, image] of images.entries()) {
 				if (uploadAborted) break;
@@ -651,6 +837,7 @@ class BleConnectionStore {
 
 					for (let offset = 0; offset < buffer.length; offset += chunkSize) {
 						if (uploadAborted) break;
+						this.throwIfCancelled();
 
 						const chunk = buffer.subarray(offset, offset + chunkSize);
 						// Erased flash reads 0xFF, so all-white stretches of the black plane need no write:
@@ -666,7 +853,7 @@ class BleConnectionStore {
 							packet[5] = (offset >> 8) & 0xff;
 							packet.set(chunk, 6);
 
-							await rxtx.writeValueWithResponse(packet);
+							await this.writeWithRetry(rxtx, packet);
 						}
 						chunksDone++;
 						this.imageUploadProgress = (chunksDone / totalChunks) * 100;
@@ -676,22 +863,41 @@ class BleConnectionStore {
 					`Image ${index + 1}/${images.length} sent (${Math.round(this.imageUploadProgress)}%)`
 				);
 			}
+			this.cancellable = false;
 
 			if (uploadAborted) {
 				logStore.addLog('Upload aborted due to device error. Images may be corrupted.');
+				this.imageUploadFailed('The tag refused part of the pictures; send them again.');
 				return;
 			}
 
-			// E5 02: the device erases the sectors no chunk reached, commits the upload, replies
-			// E5 02 <ok> and starts showing it.
+			// E5 02 <crc32 LE>: the device erases the sectors no chunk reached, checks the stored
+			// data against the CRC, commits the upload, replies E5 02 <ok> and starts showing it.
+			// Replies E5 02 00 02 when the data doesn't match (nothing is committed). Firmware before
+			// v0.16.0 ignores the CRC.
 			const committed = await this.writeAndAwaitReply(
 				rxtx,
-				new Uint8Array([0xe5, 0x02]),
+				new Uint8Array([
+					0xe5,
+					0x02,
+					imagesCrc & 0xff,
+					(imagesCrc >>> 8) & 0xff,
+					(imagesCrc >>> 16) & 0xff,
+					(imagesCrc >>> 24) & 0xff
+				]),
 				isReplyTo(0x02),
 				15000
 			);
 			if (!committed || committed[2] !== 0x01) {
-				logStore.addLog('Device did not confirm the upload. Upload it again.');
+				if (committed && committed.length >= 4 && committed[3] === 0x02) {
+					logStore.addLog(
+						'Device found the stored pictures incomplete (CRC mismatch). Upload it again.'
+					);
+					this.imageUploadFailed('The pictures arrived incomplete; send them again.');
+				} else {
+					logStore.addLog('Device did not confirm the upload. Upload it again.');
+					this.imageUploadFailed('The tag did not confirm the pictures; send them again.');
+				}
 				return;
 			}
 			const elapsed = ((Date.now() - start) / 1000).toFixed(1);
@@ -708,9 +914,13 @@ class BleConnectionStore {
 					? `Slideshow uploaded in ${elapsed}s. Interval: ${slideshowInterval}s`
 					: `Photo uploaded in ${elapsed}s (persistent single-photo mode).`
 			);
+			this.imageUploadResult = {
+				ok: true,
+				message:
+					images.length > 1 ? `Slideshow sent in ${elapsed} s.` : `Picture sent in ${elapsed} s.`
+			};
 		} finally {
 			rxtx.removeEventListener('characteristicvaluechanged', chunkFailureListener);
-			this.isUploadingImages = false;
 			this.suppressE5Notifications = false;
 		}
 	}
@@ -718,6 +928,7 @@ class BleConnectionStore {
 	private async eraseFwArea(ota: BluetoothRemoteGATTCharacteristic) {
 		const totalSectors = OTA_BANK_SIZE / 0x1000;
 		for (let sector = 0; sector < totalSectors; sector++) {
+			this.throwIfCancelled();
 			const address = OTA_BANK_ADDRESS + sector * 0x1000;
 			const pkt = new Uint8Array(5);
 			pkt[0] = 0x01;
@@ -725,7 +936,7 @@ class BleConnectionStore {
 			pkt[2] = (address >> 16) & 0xff;
 			pkt[3] = (address >> 8) & 0xff;
 			pkt[4] = address & 0xff;
-			await ota.writeValueWithResponse(pkt);
+			await this.writeValue(ota, pkt);
 			logStore.addLog(`Erasing sector ${sector + 1}/${totalSectors}`);
 		}
 	}
@@ -751,7 +962,7 @@ class BleConnectionStore {
 			const pkt = new Uint8Array(1 + chunk.length);
 			pkt[0] = 0x03;
 			pkt.set(chunk, 1);
-			await ota.writeValueWithResponse(pkt);
+			await this.writeValue(ota, pkt);
 		}
 
 		// Commit this page to flash; the tag writes it before it acknowledges the write.
@@ -761,7 +972,7 @@ class BleConnectionStore {
 		commitPkt[2] = (address >> 16) & 0xff;
 		commitPkt[3] = (address >> 8) & 0xff;
 		commitPkt[4] = address & 0xff;
-		await ota.writeValueWithResponse(commitPkt);
+		await this.writeValue(ota, commitPkt);
 	}
 
 	// Firmware v0.11.0 on: command 08 <bank offset:3> <data> puts data at a bank offset in one write,
@@ -772,6 +983,7 @@ class BleConnectionStore {
 	private async writeFirmwareAtOffsets(ota: BluetoothRemoteGATTCharacteristic, data: Uint8Array) {
 		const chunkSize = 236;
 		for (let offset = 0; offset < data.length; offset += chunkSize) {
+			this.throwIfCancelled();
 			const chunk = data.subarray(offset, offset + chunkSize);
 			const packet = new Uint8Array(4 + chunk.length);
 			packet[0] = 0x08;
@@ -779,7 +991,7 @@ class BleConnectionStore {
 			packet[2] = (offset >> 8) & 0xff;
 			packet[3] = offset & 0xff;
 			packet.set(chunk, 4);
-			await ota.writeValueWithResponse(packet);
+			await this.writeWithRetry(ota, packet);
 			this.firmwareUploadProgress = ((offset + chunk.length) / data.length) * 100;
 		}
 	}
@@ -801,21 +1013,20 @@ class BleConnectionStore {
 			if (accept(data)) resolve(data);
 		};
 		const timer = setTimeout(() => resolve(null), timeoutMs);
-		const { promise: timedOut, resolve: timeOut } = Promise.withResolvers<'timeout'>();
-		const writeTimer = setTimeout(() => timeOut('timeout'), timeoutMs);
 		characteristic.addEventListener('characteristicvaluechanged', onValue);
 
 		try {
 			// The reply notification often arrives before the write's acknowledgement. Returning then
-			// would leave the write in flight, and the next GATT operation fails with "GATT operation
-			// already in progress", so the write always settles first.
-			const written = characteristic.writeValueWithResponse(packet).then(() => 'written' as const);
-			written.catch(() => undefined); // a failure after a stalled write timed out is not an error here
-			if ((await Promise.race([written, timedOut])) === 'timeout') return null;
+			// would leave the write in flight, so the write always settles first.
+			try {
+				await this.writeValue(characteristic, packet, timeoutMs);
+			} catch (e) {
+				if (e instanceof WriteTimeoutError) return null;
+				throw e;
+			}
 			return await reply;
 		} finally {
 			clearTimeout(timer);
-			clearTimeout(writeTimer);
 			characteristic.removeEventListener('characteristicvaluechanged', onValue);
 		}
 	}
@@ -839,17 +1050,29 @@ class BleConnectionStore {
 		return promise;
 	}
 
+	private firmwareUpdateFailed(message: string) {
+		this.firmwareUpdateResult = { ok: false, message };
+	}
+
 	async flashFirmware(address: number, data: Uint8Array): Promise<void> {
+		if (this.busy) return;
 		// Held for the whole update: a dropped link makes its writes fail instead of being skipped.
 		const ota = this.writeCharacteristic;
 		if (!ota) {
 			logStore.addLog('OTA service unavailable. Is Bluetooth connected?');
 			return;
 		}
+		this.firmwareUpdateResult = null;
 		if (data.length > OTA_MAX_FIRMWARE_SIZE) {
 			logStore.addLog(
 				`Firmware is ${data.length} bytes; the OTA bank holds at most ${OTA_MAX_FIRMWARE_SIZE}.`
 			);
+			this.firmwareUpdateFailed('The firmware file is too large for the update area.');
+			return;
+		}
+		if (this.batteryPercent !== null && this.batteryPercent < MIN_FLASH_BATTERY_PERCENT) {
+			logStore.addLog(`Battery at ${this.batteryPercent}%: update not started.`);
+			this.firmwareUpdateFailed(BATTERY_TOO_LOW_FOR_UPDATE);
 			return;
 		}
 
@@ -858,8 +1081,11 @@ class BleConnectionStore {
 		const crc = this.calculateCRC(data);
 		const crcHex = crc.toString(16).padStart(4, '0');
 
+		// Nothing above awaits, so a second click finds the flag already up.
 		this.firmwareUploadProgress = 0;
 		this.isFlashingFirmware = true;
+		this.cancelling = false;
+		this.cancellable = true;
 
 		try {
 			// Replies (CRC result, rejection) come back as notifications on this characteristic.
@@ -884,9 +1110,7 @@ class BleConnectionStore {
 				// last reply buffer instead of the command itself, so it never flashes and never answers.
 				// Stage the CRC there: command 03 puts it at offset 5 of the page buffer, command 05
 				// copies that buffer into the reply buffer, and command 06 below only overwrites bytes 0-2.
-				await ota.writeValueWithResponse(
-					new Uint8Array([0x03, 0, 0, 0, 0, 0, crc >> 8, crc & 0xff])
-				);
+				await this.writeValue(ota, new Uint8Array([0x03, 0, 0, 0, 0, 0, crc >> 8, crc & 0xff]));
 				await this.writeAndAwaitReply(
 					ota,
 					new Uint8Array([0x05, 0, 0, 0, 0]),
@@ -894,6 +1118,11 @@ class BleConnectionStore {
 					3000
 				);
 			}
+
+			// Cancel pressed while the last writes went out still counts; from here the tag verifies
+			// and installs, which can't be stopped.
+			this.throwIfCancelled();
+			this.cancellable = false;
 
 			logStore.addLog(
 				`Firmware upload completed in ${((Date.now() - startTime) / 1000).toFixed(2)}s`
@@ -913,6 +1142,7 @@ class BleConnectionStore {
 					logStore.addLog(
 						`CRC mismatch: device has 0x${deviceCrc.toString(16).padStart(4, '0')}, expected 0x${crcHex}. Not flashing, upload again.`
 					);
+					this.firmwareUpdateFailed('The update arrived incomplete; try again.');
 					return;
 				}
 				logStore.addLog(`Device CRC OK (0x${crcHex}).`);
@@ -931,7 +1161,10 @@ class BleConnectionStore {
 				rejected = await this.writeAndAwaitReply(
 					ota,
 					new Uint8Array([0x07, 0xc0, 0x01, 0xce, 0xed, crc >> 8, crc & 0xff]),
-					(d) => d[0] === 0x07 && d[1] === 0x00 && (d.length === 2 || d.length === 4),
+					(d) =>
+						d[0] === 0x07 &&
+						((d[1] === 0x00 && (d.length === 2 || d.length === 4)) ||
+							(d[1] === 0x02 && d.length === 2)),
 					5000
 				);
 			} catch {
@@ -939,11 +1172,21 @@ class BleConnectionStore {
 			}
 
 			if (rejected) {
+				if (rejected[1] === 0x02) {
+					logStore.addLog('Device refused to install the firmware: battery too low.');
+					this.firmwareUpdateFailed(BATTERY_TOO_LOW_FOR_UPDATE);
+					return;
+				}
 				const detail =
 					rejected.length === 4
 						? `its CRC is 0x${((rejected[2] << 8) | rejected[3]).toString(16).padStart(4, '0')}, expected 0x${crcHex}`
 						: 'bad final command, or not a bootable image';
 				logStore.addLog(`Device rejected the firmware (${detail}). Nothing was flashed.`);
+				this.firmwareUpdateFailed(
+					rejected.length === 4
+						? 'The update arrived incomplete; try again.'
+						: 'The tag refused the file as firmware.'
+				);
 				return;
 			}
 
@@ -954,15 +1197,30 @@ class BleConnectionStore {
 				logStore.addLog(
 					'Device dropped the connection: it is rebooting into the new firmware. Reconnect in ~10 s; the screen redraws on boot.'
 				);
+				this.firmwareUpdateResult = {
+					ok: true,
+					message: 'Update installed. The tag is restarting; reconnect in about 10 seconds.'
+				};
 			} else {
 				logStore.addLog(
 					`Device is still connected ${OTA_REBOOT_TIMEOUT_MS / 1000} s after the final command, so it did NOT apply the update. ` +
 						'Its current firmware cannot self-update over BLE: flash it once over UART (Serial firmware panel).'
 				);
+				this.firmwareUpdateFailed(
+					'The tag did not apply the update. Flash it once over serial, then update over Bluetooth.'
+				);
 			}
 		} catch (e) {
-			await handleError(e);
+			if (e instanceof TransferCancelled) {
+				logStore.addLog('Update cancelled. The tag keeps its current firmware.');
+				this.firmwareUpdateFailed('Update cancelled. The tag keeps its current firmware.');
+			} else {
+				await handleError(e);
+				this.firmwareUpdateFailed(`Update failed: ${errorMessage(e)}`);
+			}
 		} finally {
+			this.cancellable = false;
+			this.cancelling = false;
 			this.isFlashingFirmware = false;
 		}
 	}
@@ -981,6 +1239,8 @@ class BleConnectionStore {
 		this.imageUploadProgress = 0;
 		this.isFlashingFirmware = false;
 		this.isUploadingImages = false;
+		this.cancellable = false;
+		this.cancelling = false;
 		this.suppressE5Notifications = false;
 		this.connectedDeviceName = '';
 		this.fastRefreshEnabled = false;
@@ -1006,5 +1266,5 @@ export const bleConnectionStore = new BleConnectionStore();
 // Logs a failed BLE operation; the UI calls the store without handling errors itself.
 async function handleError(e: unknown): Promise<void> {
 	console.error(e);
-	logStore.addLog('Error: ' + (e instanceof Error ? e.message : String(e)));
+	logStore.addLog('Error: ' + errorMessage(e));
 }

@@ -11,7 +11,12 @@ enum
     SCREEN_SCENE_COUNT
 };
 
+// Shows a scene and stores it in the settings (saved later, see device_settings_save_if_changed).
 void screen_set_scene(uint8_t scene);
+// Boot: shows the stored scene. Image and slideshow need stored images, else it is the dashboard.
+// Without a stored scene (settings of older firmware) it follows the stored images: slideshow for
+// several, the image scene for one, else the dashboard.
+void screen_restore_scene(void);
 uint8_t screen_scene(void);
 // A raw frame upload (EPD service) took over the panel: stop drawing scenes over it until the
 // scene is changed again.

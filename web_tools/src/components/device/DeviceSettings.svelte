@@ -54,7 +54,7 @@
 		<select
 			class="field w-auto min-w-56"
 			value={store.selectedModel}
-			disabled={store.busy}
+			disabled={store.commandsBlocked}
 			onchange={(event) => store.setDisplayModel(Number(event.currentTarget.value))}
 		>
 			{#each DISPLAY_MODEL_OPTIONS as option (option.model)}
@@ -70,7 +70,7 @@
 				? 'Fewer full refreshes on the clock screens; more ghosting'
 				: 'Not supported by this display'}
 			checked={store.fastRefreshEnabled}
-			disabled={store.busy || !store.fastRefreshSupported}
+			disabled={store.commandsBlocked || !store.fastRefreshSupported}
 			onchange={(enabled) => store.setFastRefreshEnabled(enabled)}
 		/>
 
@@ -84,7 +84,7 @@
 			<select
 				class="field w-auto min-w-44"
 				value={store.clockIntervalMinutes ?? 1}
-				disabled={store.busy || !clockSupported}
+				disabled={store.commandsBlocked || !clockSupported}
 				onchange={(event) =>
 					store.setClockSchedule(Number(event.currentTarget.value), store.clockSync === true)}
 			>
@@ -100,7 +100,7 @@
 			label="Finish on the minute"
 			hint="Starts each refresh early, so the new time appears as the minute changes"
 			checked={store.clockSync}
-			disabled={store.busy || !clockSupported}
+			disabled={store.commandsBlocked || !clockSupported}
 			onchange={(enabled) => store.setClockSchedule(store.clockIntervalMinutes ?? 1, enabled)}
 		/>
 	{/if}
@@ -126,7 +126,7 @@
 			<select
 				class="field w-auto min-w-44"
 				value={store.slideshowIntervalSeconds ?? 60}
-				disabled={store.busy || !imagesKnown || !store.storedImageCount}
+				disabled={store.commandsBlocked || !imagesKnown || !store.storedImageCount}
 				onchange={(event) => store.setSlideshowInterval(Number(event.currentTarget.value))}
 			>
 				{#each intervalOptions as option (option.value)}
@@ -140,7 +140,7 @@
 		label="Status light"
 		hint="Blinks now and then to show the tag is alive"
 		checked={store.ledFlashingEnabled}
-		disabled={store.busy}
+		disabled={store.commandsBlocked}
 		onchange={(enabled) => store.setLedFlashing(enabled)}
 	/>
 
@@ -149,7 +149,7 @@
 			<span class="text-[0.95rem]">Screen</span>
 			<span class="text-sm text-muted">Draw it again with a full refresh</span>
 		</span>
-		<button class="btn btn-outline" disabled={store.busy} onclick={() => store.redraw()}
+		<button class="btn btn-outline" disabled={store.commandsBlocked} onclick={() => store.redraw()}
 			>Redraw</button
 		>
 	</div>
@@ -159,8 +159,10 @@
 			<span class="text-[0.95rem]">Clock</span>
 			<span class="text-sm text-muted">Set on every connect, with your time zone</span>
 		</span>
-		<button class="btn btn-outline" disabled={store.busy} onclick={() => store.syncTime()}
-			>Set now</button
+		<button
+			class="btn btn-outline"
+			disabled={store.commandsBlocked}
+			onclick={() => store.syncTime()}>Set now</button
 		>
 	</div>
 
@@ -175,24 +177,24 @@
 			<div class="flex flex-wrap items-center gap-3">
 				<button
 					class="btn btn-outline"
-					disabled={store.busy}
+					disabled={store.commandsBlocked}
 					onclick={() => store.playLedRainbow(true)}>Play rainbow</button
 				>
 				<button
 					class="btn btn-text"
-					disabled={store.busy}
+					disabled={store.commandsBlocked}
 					onclick={() => store.playLedRainbow(false)}>Stop</button
 				>
 			</div>
 			<div class="flex flex-wrap items-center gap-3">
 				<button
 					class="btn btn-outline"
-					disabled={store.busy}
+					disabled={store.commandsBlocked}
 					onclick={() => store.requestTemperature()}>Read temperature</button
 				>
 				<button
 					class="btn btn-outline"
-					disabled={store.busy}
+					disabled={store.commandsBlocked}
 					onclick={() => store.queryDisplayInfo()}>Read display info</button
 				>
 			</div>
@@ -213,7 +215,9 @@
 						bind:value={patternHex}
 					/>
 				</label>
-				<button class="btn btn-outline" disabled={store.busy || !patternValid}>Draw</button>
+				<button class="btn btn-outline" disabled={store.commandsBlocked || !patternValid}
+					>Draw</button
+				>
 			</form>
 		</div>
 	</details>

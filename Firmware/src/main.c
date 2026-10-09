@@ -7,6 +7,7 @@
 #include "application/device_settings.h"
 #include "application/local_time.h"
 #include "application/display.h"
+#include "application/power.h"
 #include "application/screen.h"
 #include "application/status_led.h"
 #include "application/telemetry.h"
@@ -29,16 +30,29 @@ _attribute_ram_code_ __attribute__((optimize("-Os"))) void irq_handler(void)
 	irq_blt_sdk_handler();
 }
 
+// Resets the chip if the main loop does not run for this long. Every iteration is far shorter than
+// this: the loop runs at least once per advertising interval (1 s) or connection event (250 ms
+// requested, a phone may pick up to 4 s), and the longest work inside one is starting a panel
+// refresh, a few BUSY waits of at most 500 ms each. Flash erases clear the watchdog themselves
+// (SDK flash.c) and the OTA copy stops it. Even if it kept counting in suspend, a sleep ends at the
+// next advertising or connection event, so it cannot trip there. Deep retention resets the chip's
+// registers, so main() arms it again on every wake-up.
+#define WATCHDOG_MS 8000
+
 // Runs once after power up (not after deep-retention wake-ups).
 _attribute_ram_code_ static void init_normal(void)
 {
 	random_generator_init(); // must
 	wall_clock_init();
+	// Sampled here, before anything can start a panel refresh, so a dying cell does not brown out on
+	// the boot refresh again and again.
+	power_sample_battery();
 	ble_init();
+	image_store_init(); // before the settings: older settings take the slideshow interval from it
 	device_settings_load();
 	local_time_init();
 	display_init(device_settings_panel_model());
-	image_store_init();
+	screen_restore_scene();
 	init_nfc();
 }
 
@@ -54,6 +68,7 @@ _attribute_ram_code_ static void main_loop(void)
 {
 	uint8_t connected;
 
+	wd_clear();
 	blt_sdk_main_loop();
 	wall_clock_tick();
 
@@ -61,6 +76,9 @@ _attribute_ram_code_ static void main_loop(void)
 	telemetry_update(connected);
 	screen_update(connected, ble_device_name());
 	status_led_update(connected);
+	// Settings changed over BLE are stored once the link is closed, never while a panel refresh runs.
+	if (!connected && !display_is_refreshing())
+		device_settings_save_if_changed();
 
 	if (display_poll())
 	{ // a refresh is running: sleep between BLE events only, and wake when the panel's BUSY pin goes idle
@@ -97,6 +115,8 @@ _attribute_ram_code_ int main(void) // must run in ramcode
 #elif (CLOCK_SYS_CLOCK_HZ == 24000000)
 	clock_init(SYS_CLK_24M_Crystal);
 #endif
+	wd_set_interval_ms(WATCHDOG_MS, CLOCK_SYS_CLOCK_1MS);
+	wd_start();
 	if (!deepRetWakeUp)
 		image_store_repair_legacy_overlap();
 	blc_app_loadCustomizedParameters();

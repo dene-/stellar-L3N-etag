@@ -33,6 +33,11 @@ void display_show_pattern(uint8_t pattern);
 // Shows the current frame as decided by domain/refresh_policy (redraw: even if unchanged; fast:
 // fast refresh mode); returns 0 if it was skipped.
 uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast);
+// None of the three starts a refresh while the battery is too low (application/power.h): the call
+// does nothing, the panel keeps its image, and display_take_deferred_refresh reports it later.
+// Returns 1 once, when a refresh was refused and refreshes are allowed again; the caller should
+// redraw then.
+uint8_t display_take_deferred_refresh(void);
 // The refresh display_refresh_if_changed would do for the current frame, without doing it.
 refresh_kind_t display_plan_refresh(uint8_t redraw, uint8_t fast);
 // How long a refresh of kind (partial or full) takes on this panel, from starting it until the

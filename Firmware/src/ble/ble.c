@@ -3,7 +3,8 @@
 #include "drivers.h"
 #include "stack/ble/ble.h"
 #include "vendor/common/blt_common.h"
-#include "application/device_settings.h"
+#include "application/image_upload.h"
+#include "application/status_led.h"
 #include "application/ports/telemetry_sink.h"
 #include "ble/ble.h"
 #include "ble/gatt.h"
@@ -48,7 +49,10 @@ _attribute_ram_code_ static void ble_disconnect_callback(uint8_t e, uint8_t *p, 
 {
 	ble_connected = 0;
 	ota_service_reset();
-	device_settings_save_if_changed();
+	// Settings are stored by the main loop, not here. A half-sent image upload is dropped: its
+	// store stays empty (the header was erased when it started).
+	image_upload_abort();
+	status_led_set_rainbow(0);
 	printf("BLE disconnected\r\n");
 }
 

@@ -80,7 +80,7 @@
 			<p class="text-soft">Choose what the tag shows.</p>
 		{/if}
 		<SceneCards
-			interactive={store.connected && !store.busy}
+			interactive={store.connected && !store.commandsBlocked}
 			active={store.activeScene}
 			onselect={(scene) => store.setScene(scene)}
 		/>

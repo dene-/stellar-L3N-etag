@@ -1,6 +1,7 @@
 #include <string.h>
 #include "application/display.h"
 #include "application/device_settings.h"
+#include "application/power.h"
 #include "application/ports/wall_clock.h"
 #include "application/ports/epd_panel.h"
 #include "domain/refresh_policy.h"
@@ -14,6 +15,8 @@ static RAM uint32_t refresh_started_ms; // uptime ms
 // Last measured duration of a partial [0] and a full [1] refresh on this panel, 0 = not yet.
 static RAM uint32_t refresh_ms[2];
 static RAM refresh_policy_t refresh_policy;
+// A refresh was refused because the battery is low; see display_take_deferred_refresh.
+static RAM uint8_t refresh_deferred;
 
 static RAM uint8_t temperature_valid;
 static RAM int16_t temperature; // x10
@@ -23,6 +26,16 @@ static RAM uint32_t temperature_time;
 // plane is redrawn or reloaded before every refresh.
 static RAM uint8_t black_plane[PANEL_MAX_PLANE_BYTES];
 static uint8_t red_plane[PANEL_MAX_PLANE_BYTES];
+
+// Refreshes are the biggest load on the supply, so none starts while the battery is low. The panel
+// keeps the image it shows; nothing of the skipped frame is recorded as shown.
+static uint8_t refresh_allowed(void)
+{
+    if (power_refresh_allowed())
+        return 1;
+    refresh_deferred = 1;
+    return 0;
+}
 
 static void remember_temperature(int16_t value)
 {
@@ -109,14 +122,19 @@ uint8_t display_write(uint8_t plane, uint16_t offset, const uint8_t *data, uint1
 
 _attribute_ram_code_ void display_refresh(uint16_t size, uint8_t full)
 {
+    if (!refresh_allowed())
+        return;
     refresh_policy_forget(&refresh_policy);
     show(black_plane, red_plane, size, full);
 }
 
 _attribute_ram_code_ void display_show_pattern(uint8_t pattern)
 {
-    uint16_t size = panel_plane_bytes(display_panel());
+    uint16_t size;
 
+    if (!refresh_allowed())
+        return;
+    size = panel_plane_bytes(display_panel());
     memset(black_plane, pattern, size);
     refresh_policy_forget(&refresh_policy);
     show(black_plane, 0, size, 1);
@@ -126,9 +144,11 @@ uint8_t display_refresh_if_changed(uint8_t redraw, uint8_t fast)
 {
     const panel_t *panel = display_panel();
     uint16_t size = panel_plane_bytes(panel);
-    refresh_kind_t kind =
-        refresh_policy_decide(&refresh_policy, black_plane, red_plane, size, redraw, fast, panel->has_partial);
+    refresh_kind_t kind;
 
+    if (!refresh_allowed())
+        return 0;
+    kind = refresh_policy_decide(&refresh_policy, black_plane, red_plane, size, redraw, fast, panel->has_partial);
     if (kind == REFRESH_SKIP)
         return 0;
     show(black_plane, red_plane, size, kind == REFRESH_FULL);
@@ -155,6 +175,14 @@ uint32_t display_refresh_duration_ms(refresh_kind_t kind)
 uint8_t display_is_refreshing(void)
 {
     return refreshing;
+}
+
+uint8_t display_take_deferred_refresh(void)
+{
+    if (!refresh_deferred || !power_refresh_allowed())
+        return 0;
+    refresh_deferred = 0;
+    return 1;
 }
 
 _attribute_ram_code_ uint8_t display_poll(void)

@@ -22,3 +22,20 @@ uint8_t battery_percent(uint16_t battery_mv)
     }
     return 0;
 }
+
+uint8_t battery_reading_plausible(uint16_t battery_mv)
+{
+    return battery_mv >= BATTERY_PLAUSIBLE_MIN_MV && battery_mv <= BATTERY_PLAUSIBLE_MAX_MV;
+}
+
+uint8_t battery_flash_write_ok(uint16_t battery_mv)
+{
+    return !battery_reading_plausible(battery_mv) || battery_mv >= BATTERY_FLASH_MIN_MV;
+}
+
+uint8_t battery_refresh_ok(uint16_t battery_mv, uint8_t paused)
+{
+    if (!battery_reading_plausible(battery_mv))
+        return !paused;
+    return paused ? battery_mv >= BATTERY_REFRESH_RESUME_MV : battery_mv >= BATTERY_REFRESH_MIN_MV;
+}

@@ -123,11 +123,17 @@
 		if (photo) photo.imageRotation = ((photo.imageRotation + delta + 360) % 360) as ImageRotation;
 	}
 
+	// Raised before the first await, so a second click during rendering can't start a second upload.
+	let sending = $state(false);
+
 	async function send() {
+		if (sending) return;
 		if (!store.connected) {
 			await store.preConnect();
 			return;
 		}
+		sending = true;
+		store.imageUploadResult = null;
 		try {
 			const rendered = [];
 			for (const item of photos) {
@@ -137,7 +143,14 @@
 			}
 			await store.uploadImageSet(rendered, photos.length > 1 ? intervalSeconds : 0);
 		} catch (error) {
-			logStore.addLog('Upload error: ' + (error instanceof Error ? error.message : String(error)));
+			const message = error instanceof Error ? error.message : String(error);
+			logStore.addLog('Upload error: ' + message);
+			store.imageUploadResult = {
+				ok: false,
+				message: `Could not convert the pictures: ${message}`
+			};
+		} finally {
+			sending = false;
 		}
 	}
 </script>
@@ -351,13 +364,18 @@
 		<div class="flex flex-col gap-3">
 			<button
 				class="btn btn-primary w-full"
-				disabled={store.busy || store.connecting || (store.connected && photos.length === 0)}
+				disabled={sending ||
+					store.busy ||
+					store.connecting ||
+					(store.connected && photos.length === 0)}
 				onclick={send}
 			>
 				{#if !store.connected}
 					Connect to send
 				{:else if store.isUploadingImages}
 					Sending… {Math.ceil(store.imageUploadProgress)}%
+				{:else if sending}
+					Converting…
 				{:else}
 					Send {photos.length > 1 ? `${photos.length} pictures` : 'to tag'}
 				{/if}
@@ -370,6 +388,20 @@
 				>
 					<span style="width: {store.imageUploadProgress}%"></span>
 				</div>
+				<div class="flex items-center justify-between gap-3">
+					<p class="text-sm text-muted">Keep this page open and the tag close by.</p>
+					<button
+						class="btn btn-text"
+						disabled={!store.cancellable || store.cancelling}
+						onclick={() => store.cancelTransfer()}
+					>
+						{store.cancelling ? 'Cancelling…' : 'Cancel'}
+					</button>
+				</div>
+			{:else if store.imageUploadResult}
+				<p class="text-sm {store.imageUploadResult.ok ? 'text-ok' : 'text-danger'}" role="status">
+					{store.imageUploadResult.message}
+				</p>
 			{/if}
 		</div>
 	</aside>

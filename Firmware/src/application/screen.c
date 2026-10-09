@@ -171,17 +171,31 @@ static void update_slideshow(void)
         slideshow_restart(&slideshow, now);
         redraw_requested = 1;
     }
-    if (redraw_requested || slideshow_advance(&slideshow, now, image_store_get_interval_seconds(), count))
+    if (redraw_requested || slideshow_advance(&slideshow, now, device_settings_slideshow_interval(), count))
     {
         redraw_requested = 0;
         show_stored_image(slideshow.index);
     }
 }
 
+// The scene is a setting, so the tag comes back showing it after a reset.
 void screen_set_scene(uint8_t new_scene)
 {
     scene = new_scene;
+    device_settings_set_scene(new_scene);
     screen_request_redraw();
+}
+
+void screen_restore_scene(void)
+{
+    uint8_t stored = device_settings_scene();
+    uint8_t count = image_store_get_image_count();
+
+    if (stored == DEVICE_SETTINGS_SCENE_UNSET)
+        stored = count > 1 ? SCREEN_SCENE_SLIDESHOW : (count == 1 ? SCREEN_SCENE_IMAGE : SCREEN_SCENE_DASHBOARD);
+    else if ((stored == SCREEN_SCENE_IMAGE || stored == SCREEN_SCENE_SLIDESHOW) && !count)
+        stored = SCREEN_SCENE_DASHBOARD;
+    screen_set_scene(stored);
 }
 
 void screen_hold_frame(void)
@@ -214,6 +228,10 @@ void screen_select_panel(uint8_t model)
 
 void screen_update(uint8_t ble_connected, const char *device_name)
 {
+    // A refresh the battery was too low for was skipped: draw that frame again now.
+    if (display_take_deferred_refresh())
+        screen_request_redraw();
+
     switch (scene)
     {
     case SCREEN_SCENE_IMAGE:

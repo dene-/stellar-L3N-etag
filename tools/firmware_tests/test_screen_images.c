@@ -3,6 +3,7 @@
 #include "application/device_settings.h"
 #include "application/display.h"
 #include "application/image_upload.h"
+#include "application/ports/image_storage.h"
 #include "application/screen.h"
 #include "check.h"
 #include "fakes.h"
@@ -32,7 +33,7 @@ static void setup(uint8_t model)
 static void upload(uint8_t model, uint8_t count)
 {
     CHECK_EQ(image_upload_begin(model, INTERVAL, count), 1);
-    CHECK_EQ(image_upload_finish(), 1);
+    CHECK_EQ(image_upload_finish(0, 0), IMAGE_STORE_COMMIT_OK);
 }
 
 static void test_dashboard_to_image_is_one_full_refresh(void)

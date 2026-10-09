@@ -11,14 +11,18 @@
 		onpick?: (file: FirmwareFile | null) => void;
 	};
 	let { file = $bindable(), maxBytes, disabled = false, onpick }: Props = $props();
+	// Why the last picked file was refused, shown under the drop zone.
+	let refused = $state<string | null>(null);
 
 	async function pick(files: File[]) {
 		try {
 			file = await readFirmwareFile(files[0], maxBytes);
+			refused = null;
 			logStore.addLog(`${file.name} selected, ${file.data.length} bytes.`);
 		} catch (error) {
 			file = null;
-			logStore.addLog(error instanceof Error ? error.message : String(error));
+			refused = error instanceof Error ? error.message : String(error);
+			logStore.addLog(refused);
 		}
 		onpick?.(file);
 	}
@@ -39,3 +43,6 @@
 		{/if}
 	{/snippet}
 </FileDrop>
+{#if refused}
+	<p class="text-sm text-danger" role="alert">{refused}</p>
+{/if}

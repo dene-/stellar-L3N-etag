@@ -43,10 +43,17 @@ extern uint16_t fake_store_interval;
 extern uint8_t fake_store_count;
 extern int fake_store_clear_calls;
 extern int fake_store_load_calls;
+extern int fake_store_abort_calls;
 extern uint8_t fake_store_loaded_index; // image of the last load_image
+// finalize: the CRC the "flash" holds (a checked commit with another value is a mismatch) and the
+// arguments of the last commit.
+extern uint32_t fake_store_data_crc;
+extern uint32_t fake_store_finalize_crc;
+extern uint8_t fake_store_finalize_checked;
 
 // settings_storage (default: nothing valid stored)
 extern uint8_t fake_settings_valid;
+extern uint8_t fake_settings_legacy; // load reports a legacy record: scene and slideshow interval not loaded
 extern device_settings_t fake_settings_stored; // what load returns / the last save wrote
 extern int fake_settings_save_calls;
 

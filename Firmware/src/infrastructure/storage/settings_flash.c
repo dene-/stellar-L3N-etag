@@ -2,85 +2,82 @@
 #include "tl_common.h"
 #include "drivers.h"
 #include "application/ports/settings_storage.h"
-#include "sections.h"
+#include "domain/settings_log.h"
 
+// The log lives in the sector at 0x78000, after 0x100 bytes this firmware leaves alone (the SDK's
+// pairing information, unused here; the old single record started here too). See
+// domain/settings_log.h for the slot layout.
+#define SETTINGS_SECTOR 0x78000
 #define SETTINGS_ADDR 0x78100
-#define SETTINGS_MAGIC 0xABCFF124 // bump when defaults must replace saved settings
+#define SETTINGS_SECTOR_END 0x79000
+#define SETTINGS_SLOT_COUNT ((SETTINGS_SECTOR_END - SETTINGS_ADDR) / SETTINGS_SLOT_SIZE)
 
-// Flash record. The layout is fixed so settings survive firmware updates; reserved bytes held
-// settings of earlier firmware and are kept as they are. New fields go before the CRC: records of
-// earlier firmware are shorter (len) and leave the newer settings at their defaults.
-typedef struct __attribute__((packed))
+static void scan_log(settings_log_scan_t *scan)
 {
-	uint32_t magic;
-	uint32_t len;
-	uint8_t reserved_a[5];
-	uint8_t led_flashing_enabled;
-	uint8_t fast_refresh_enabled;
-	uint8_t reserved_b[4];
-	uint8_t panel_model;
-	int16_t clock_trim;
-	uint8_t clock_interval;
-	uint8_t clock_sync;
-	uint8_t crc; // XOR of the len - 1 bytes before it; must stay last
-} settings_record_t;
+	uint8_t slot[SETTINGS_SLOT_SIZE];
+	uint16_t index;
 
-// Record lengths written by earlier firmware.
-#define RECORD_LEN_BEFORE_CLOCK_TRIM 21
-#define RECORD_LEN_BEFORE_CLOCK_INTERVAL 23
-typedef char settings_record_size_check[(sizeof(settings_record_t) == 25) ? 1 : -1];
+	settings_log_scan_begin(scan);
+	for (index = 0; index < SETTINGS_SLOT_COUNT; index++)
+	{
+		flash_read_page(SETTINGS_ADDR + index * SETTINGS_SLOT_SIZE, SETTINGS_SLOT_SIZE, slot);
+		settings_log_scan_slot(scan, index, slot);
+	}
+}
 
-static RAM settings_record_t record;
-
-static uint8_t record_crc(uint32_t len)
+static void apply_record(device_settings_t *settings, const settings_log_record_t *record)
 {
-	const uint8_t *bytes = (const uint8_t *)&record;
-	uint8_t crc = 0;
-	unsigned int i;
-
-	for (i = 0; i < len - 1; i++)
-		crc ^= bytes[i];
-	return crc;
+	settings->panel_model = record->panel_model;
+	settings->fast_refresh_enabled = record->fast_refresh_enabled;
+	settings->led_flashing_enabled = record->led_flashing_enabled;
+	settings->clock_trim = record->clock_trim;
+	settings->clock_interval = record->clock_interval;
+	settings->clock_sync = record->clock_sync;
 }
 
 uint8_t settings_storage_load(device_settings_t *settings)
 {
-	const uint8_t *bytes = (const uint8_t *)&record;
+	settings_log_scan_t scan;
 
-	flash_read_page(SETTINGS_ADDR, sizeof(record), (uint8_t *)&record);
-	if (record.magic != SETTINGS_MAGIC ||
-		(record.len != sizeof(record) && record.len != RECORD_LEN_BEFORE_CLOCK_INTERVAL &&
-		 record.len != RECORD_LEN_BEFORE_CLOCK_TRIM) ||
-		bytes[record.len - 1] != record_crc(record.len))
+	scan_log(&scan);
+	if (scan.newest != SETTINGS_SLOT_NONE)
 	{
-		memset(&record, 0, sizeof(record));
-		return 0;
+		apply_record(settings, &scan.record);
+		settings->scene = scan.record.scene;
+		settings->slideshow_interval = scan.record.slideshow_interval;
+		return SETTINGS_STORAGE_CURRENT;
 	}
-
-	settings->panel_model = record.panel_model;
-	settings->fast_refresh_enabled = record.fast_refresh_enabled;
-	settings->led_flashing_enabled = record.led_flashing_enabled;
-	if (record.len >= RECORD_LEN_BEFORE_CLOCK_INTERVAL)
-		settings->clock_trim = record.clock_trim;
-	if (record.len >= sizeof(record))
+	if (scan.has_legacy)
 	{
-		settings->clock_interval = record.clock_interval;
-		settings->clock_sync = record.clock_sync;
+		apply_record(settings, &scan.legacy);
+		return SETTINGS_STORAGE_LEGACY;
 	}
-	return 1;
+	return SETTINGS_STORAGE_NONE;
 }
 
 void settings_storage_save(const device_settings_t *settings)
 {
-	record.magic = SETTINGS_MAGIC;
-	record.len = sizeof(record);
+	settings_log_scan_t scan;
+	settings_log_record_t record;
+	uint8_t slot[SETTINGS_SLOT_SIZE];
+	uint8_t erase;
+	uint16_t index;
+
 	record.panel_model = settings->panel_model;
 	record.fast_refresh_enabled = settings->fast_refresh_enabled;
 	record.led_flashing_enabled = settings->led_flashing_enabled;
 	record.clock_trim = settings->clock_trim;
 	record.clock_interval = settings->clock_interval;
 	record.clock_sync = settings->clock_sync;
-	record.crc = record_crc(sizeof(record));
-	flash_erase_sector(SETTINGS_ADDR);
-	flash_write_page(SETTINGS_ADDR, sizeof(record), (uint8_t *)&record);
+	record.scene = settings->scene;
+	record.slideshow_interval = settings->slideshow_interval;
+
+	scan_log(&scan);
+	index = settings_log_next_slot(&scan, &erase);
+	settings_log_encode(slot, settings_log_next_sequence(&scan), &record);
+	// Only a full log is erased, and the record goes into the empty sector at once; every other
+	// save programs one empty slot and cannot damage an earlier record.
+	if (erase)
+		flash_erase_sector(SETTINGS_SECTOR);
+	flash_write_page(SETTINGS_ADDR + index * SETTINGS_SLOT_SIZE, SETTINGS_SLOT_SIZE, slot);
 }

@@ -9,6 +9,8 @@
 #include "ble/ble.h"
 #include "ble/rxtx_commands.h"
 #include "application/local_time.h"
+#include "application/power.h"
+#include "application/ports/image_storage.h"
 #include "domain/clock_schedule.h"
 
 // RxTx characteristic: one command per write, opcode first. Replies go out as notifications.
@@ -77,7 +79,7 @@ static void reset_settings(const uint8_t *payload, uint16_t length)
 	screen_select_panel(device_settings_panel_model());
 }
 
-// DF: store the current settings now (they are also stored on disconnect).
+// DF: store the current settings now (otherwise the main loop stores them once the link is closed).
 static void save_settings(const uint8_t *payload, uint16_t length)
 {
 	device_settings_save();
@@ -151,10 +153,17 @@ static void set_led_rainbow(const uint8_t *payload, uint16_t length)
 		status_led_set_rainbow(payload[1]);
 }
 
-// E5 00 <model> <count> <interval:2 LE>: prepare an upload of count images; replies E5 00 <ok>.
-// E5 01 <image> <plane> <offset:2 LE> <data…>: write a chunk; replies E5 01 00 only on failure.
-// E5 02: commit and show the images; replies E5 02 <ok>.
+// E5 00 <model> <count> <interval:2 LE>: prepare an upload of count images and set the slideshow
+// interval; replies E5 00 <ok>. The stored images are dropped. Replies E5 00 00 01 and changes
+// nothing if the battery is too low for writing flash.
+// E5 01 <image> <plane> <offset:2 LE> <data…>: write a chunk; replies E5 01 00 only on failure
+// (also when no upload is active).
+// E5 02 [<CRC-32:4 LE>]: commit and show the images; replies E5 02 <ok>. With a CRC (see
+// domain/crc32.h), computed over the image bytes as stored (black then red plane of each image in
+// turn, skipped all-0xFF chunks included), a mismatch commits nothing, drops the images, goes to the
+// dashboard and replies E5 02 00 02.
 // E5 03: delete the stored images and return to the dashboard; replies E5 03 01.
+// An upload that is still open when the connection closes is dropped.
 static void image_upload(const uint8_t *payload, uint16_t length)
 {
 	switch (payload[1])
@@ -165,6 +174,13 @@ static void image_upload(const uint8_t *payload, uint16_t length)
 			notify_status(0xE5, 0x00, 0);
 			return;
 		}
+		if (!power_flash_write_allowed())
+		{
+			uint8_t reply[4] = {0xE5, 0x00, 0x00, 0x01};
+
+			notify(reply, sizeof(reply));
+			return;
+		}
 		ble_set_connection_speed(6);
 		notify_status(0xE5, 0x00, image_upload_begin(payload[2], payload[4] | (payload[5] << 8), payload[3]));
 		break;
@@ -173,9 +189,20 @@ static void image_upload(const uint8_t *payload, uint16_t length)
 			notify_status(0xE5, 0x01, 0);
 		break;
 	case 0x02:
-		notify_status(0xE5, 0x02, image_upload_finish());
+	{
+		uint8_t result = image_upload_finish(length >= 6, length >= 6 ? read_le32(&payload[2]) : 0);
+
+		if (result == IMAGE_STORE_COMMIT_CRC_MISMATCH)
+		{
+			uint8_t reply[4] = {0xE5, 0x02, 0x00, 0x02};
+
+			notify(reply, sizeof(reply));
+		}
+		else
+			notify_status(0xE5, 0x02, result == IMAGE_STORE_COMMIT_OK);
 		ble_set_connection_speed(200);
 		break;
+	}
 	case 0x03:
 		image_upload_clear();
 		ble_set_connection_speed(200);
@@ -247,7 +274,8 @@ static void report_version(const uint8_t *payload, uint16_t length)
 }
 
 // E9 AA: replies E9 AA <stored images> <slideshow interval:2 LE>, in seconds (0 = a minute).
-// E9 01 <interval:2 LE>: change the slideshow interval of the stored images; replies like E9 AA.
+// E9 01 <interval:2 LE>: change the slideshow interval (a setting, no image data is rewritten);
+// replies like E9 AA.
 static void stored_images(const uint8_t *payload, uint16_t length)
 {
 	uint16_t interval;

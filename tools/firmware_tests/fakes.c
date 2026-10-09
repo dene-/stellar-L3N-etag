@@ -39,12 +39,17 @@ uint16_t fake_store_interval;
 uint8_t fake_store_count;
 int fake_store_clear_calls;
 int fake_store_load_calls;
+int fake_store_abort_calls;
 uint8_t fake_store_loaded_index;
+uint32_t fake_store_data_crc;
+uint32_t fake_store_finalize_crc;
+uint8_t fake_store_finalize_checked;
 static uint8_t store_prepared;
 static uint8_t store_has_images;
 static uint8_t store_pending;
 
 uint8_t fake_settings_valid;
+uint8_t fake_settings_legacy;
 device_settings_t fake_settings_stored;
 int fake_settings_save_calls;
 
@@ -81,14 +86,17 @@ void fakes_reset(void)
     fake_refresh_red_null = 0;
     fake_refresh_black0 = 0;
 
-    fake_store_prepare_calls = fake_store_clear_calls = fake_store_load_calls = 0;
+    fake_store_prepare_calls = fake_store_clear_calls = fake_store_load_calls = fake_store_abort_calls = 0;
     fake_store_model = 0;
     fake_store_width = fake_store_height = fake_store_plane_size = fake_store_interval = 0;
     fake_store_count = 0;
     fake_store_loaded_index = 0;
+    fake_store_data_crc = fake_store_finalize_crc = 0;
+    fake_store_finalize_checked = 0;
     store_prepared = store_has_images = store_pending = 0;
 
     fake_settings_valid = 0;
+    fake_settings_legacy = 0;
     memset(&fake_settings_stored, 0, sizeof(fake_settings_stored));
     fake_settings_save_calls = 0;
 
@@ -195,29 +203,42 @@ uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t off
            (uint32_t)offset + length <= fake_store_plane_size;
 }
 
-uint8_t image_store_finalize(void)
+uint8_t image_store_finalize(uint8_t check_crc, uint32_t crc)
 {
     if (!store_prepared)
-        return 0;
+        return IMAGE_STORE_COMMIT_FAILED;
+    fake_store_finalize_checked = check_crc;
+    fake_store_finalize_crc = crc;
+    store_prepared = 0;
+    if (check_crc && crc != fake_store_data_crc)
+        return IMAGE_STORE_COMMIT_CRC_MISMATCH;
     store_has_images = 1;
     store_pending = 1;
-    return 1;
+    return IMAGE_STORE_COMMIT_OK;
 }
 
-void image_store_clear(void)
+static void drop_store(void)
 {
-    fake_store_clear_calls++;
     store_prepared = store_has_images = store_pending = 0;
     fake_store_count = 0;
     fake_store_plane_size = 0;
 }
 
-uint8_t image_store_set_interval_seconds(uint16_t interval_seconds)
+void image_store_abort(void)
 {
-    if (!store_has_images)
-        return 0;
-    fake_store_interval = interval_seconds;
-    return 1;
+    fake_store_abort_calls++;
+    drop_store();
+}
+
+uint8_t image_store_upload_active(void)
+{
+    return store_prepared;
+}
+
+void image_store_clear(void)
+{
+    fake_store_clear_calls++;
+    drop_store();
 }
 
 uint8_t image_store_has_images(void)
@@ -259,10 +280,19 @@ void image_store_load_image(uint8_t image_index, uint8_t *black_buffer, uint8_t 
 // settings_storage
 uint8_t settings_storage_load(device_settings_t *settings)
 {
+    uint8_t scene = settings->scene;
+    uint16_t interval = settings->slideshow_interval;
+
     if (!fake_settings_valid)
-        return 0;
+        return SETTINGS_STORAGE_NONE;
     *settings = fake_settings_stored;
-    return 1;
+    if (fake_settings_legacy)
+    {
+        settings->scene = scene;
+        settings->slideshow_interval = interval;
+        return SETTINGS_STORAGE_LEGACY;
+    }
+    return SETTINGS_STORAGE_CURRENT;
 }
 
 void settings_storage_save(const device_settings_t *settings)

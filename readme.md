@@ -156,7 +156,8 @@ sequenceDiagram
 
 The flash holds two 128 KiB firmware banks. An update is written to the bank that is not running
 and only started once its checksum matches, so a failed or interrupted upload leaves the current
-firmware in place.
+firmware in place. From v0.16.0 on the tag refuses to install an update while its battery is below
+2.4 V (reply `07 02`), and the web tool does not start one below 5 %.
 
 > [!WARNING]
 > Firmware before v0.8.0 copies the update over itself instead: the first update from such a
@@ -219,11 +220,18 @@ minute changes. Until a partial and a full refresh have been measured it assumes
 Uploaded images are stored in flash: at most 23 and at most 212 KiB, which is 22 images on a 2.9"
 panel and 21 on a 1.54" one. Images uploaded for one panel size are not shown on another.
 
-An upload sends 240 bytes per write and waits for each response. From v0.13.0 on the tag erases
-each 4 KiB flash sector when the first write reaches it; older firmware erases the whole 212 KiB
-store first, which takes a few seconds. The web tool leaves out writes that are all white in the
-black plane, as erased flash already reads that way (the tag erases any sector left out when the
-upload is committed).
+An upload sends 240 bytes per write and waits for each response; a failed write is tried again up
+to three times, and Cancel stops it between writes. From v0.13.0 on the tag erases each 4 KiB flash
+sector when the first write reaches it; older firmware erases the whole 212 KiB store first, which
+takes a few seconds. The web tool leaves out writes that are all white in the black plane, as
+erased flash already reads that way (the tag erases any sector left out when the upload is
+committed).
+
+From v0.16.0 on the commit carries a CRC-32 of all the image data, and the tag only keeps the
+pictures if what it stored matches; otherwise, or when the connection drops mid-upload, the store
+stays empty and the tag shows the dashboard. Uploads are refused below 2.4 V (reply `E5 00 00 01`),
+before the old pictures are deleted. The slideshow interval is a setting, so changing it rewrites
+no image data.
 
 Firmware before v0.7.0 let the image store overlap the flash sectors holding the MAC address and
 the radio calibration. The first boot of a newer version deletes such a store and resets those
@@ -240,6 +248,11 @@ The battery level is estimated from the cell voltage along a CR2032 discharge cu
 at 3.0 V, 42 % at 2.9 V, 18 % at 2.74 V, 0 % at 2.1 V. The voltage stays flat for most of a coin
 cell's life, so the percentage falls slowly at first and quickly near the end.
 
+Below 2.2 V the tag stops refreshing the panel, which keeps its last picture, and resumes from
+2.3 V; a refresh it skipped is drawn then. The voltage is never sampled during a refresh, when the
+panel's current pulls it down, and is sampled once at boot before the first refresh, so a nearly
+empty cell does not brown out on that refresh over and over.
+
 The only temperature sensor is the one in the panel controller. SSD16xx panels report it in steps
 of 1/16 °C, UC8151 panels (the 2.13" ones) in whole degrees. It is measured on every screen
 refresh, every 30 seconds while connected and every 5 minutes otherwise. The sensor sits inside the
@@ -247,6 +260,22 @@ display module, so it follows the room with some delay.
 
 The tag advertises temperature, battery percentage and voltage in the ATC1441 format (service data
 UUID 0x181A).
+
+</details>
+
+<details>
+<summary><b>Settings and recovery</b>: power cuts, resets and the watchdog</summary>
+<br>
+
+Settings are kept as a log in their flash sector: each save writes a new 32-byte record with a
+sequence number and a CRC-32 into the next empty slot, and the newest intact record is loaded at
+boot, so a power cut during a save loses at most that save. The sector is erased once all 120 slots
+are used. Values out of range fall back to their defaults. Settings changed over Bluetooth are
+saved once the connection closes (or at once with `DF`), and include the screen shown, so after a
+reset or a battery change the tag returns to its picture or slideshow instead of the dashboard.
+Firmware before v0.16.0 kept one record that each save erased first.
+
+A hardware watchdog restarts the tag if its main loop stops running for 8 seconds.
 
 </details>
 
@@ -292,7 +321,7 @@ unless noted.
 | `B1 <byte>` | Fill the screen with a byte pattern (test) |
 | `DD …` | Set the clock and time zone, see `set_time` in `Firmware/src/ble/rxtx_commands.c` |
 | `DE` | Restore the default settings |
-| `DF` | Save the settings now (they are also saved on disconnect) |
+| `DF` | Save the settings now (otherwise they are saved once the connection closes) |
 | `E0 <model>` | Select the display model ([table](#display-models)) |
 | `E1 <scene>`, `E1 AA` | Switch the screen (scenes 0 to 3); `AA` replies `E1 AA <scene>` |
 | `E2 AA` | Reply with the temperature, int16 in 0.1 °C |
@@ -300,11 +329,11 @@ unless noted.
 | `E2 <other>` | Redraw with a full refresh |
 | `E3 00\|01\|AA` | Status LED off/on/query; `AA` replies `E3 AA <enabled>` |
 | `E4 00\|01` | Stop/start the LED rainbow |
-| `E5 …` | Image upload, see `image_upload` in `rxtx_commands.c` |
+| `E5 …` | Image upload: `E5 00` prepare (`E5 00 00 01` = battery too low), `E5 01` chunks, `E5 02 [crc32]` commit (`E5 02 00 02` = data does not match), `E5 03` delete; see `image_upload` in `rxtx_commands.c` |
 | `E6 00\|01\|AA` | Fast refresh off/on/query; replies `E6 <enabled> <supported>` |
 | `E7 <minutes> <sync>`, `E7 AA` | Show a new clock time every 1 to 60 minutes; sync `01` ends refreshes on the minute. `AA` queries; replies `E7 <minutes> <sync>` |
 | `E8` | Reply `E8 <version>`, the firmware version in ASCII (`0.10.0`) |
-| `E9 AA`, `E9 01 <seconds:2>` | Query the stored images, or change their slideshow interval; replies `E9 AA <images> <seconds:2>` (0 seconds = a minute) |
+| `E9 AA`, `E9 01 <seconds:2>` | Query the stored images, or change the slideshow interval (a setting); replies `E9 AA <images> <seconds:2>` (0 seconds = a minute) |
 
 </details>
 
@@ -320,7 +349,7 @@ describes the protocol.
 | `0x40000` | Uploaded images |
 | `0x76000` | MAC address (SDK) |
 | `0x77000` | Crystal calibration (SDK) |
-| `0x78100` | Settings |
+| `0x78100` | Settings, 120 records of 32 bytes |
 
 ## Building
 

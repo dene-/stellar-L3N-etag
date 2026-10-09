@@ -5,6 +5,7 @@
 <script lang="ts">
 	import { bleConnectionStore } from '../stores/connectionStore.svelte';
 	import { logStore } from '../stores/logStore.svelte';
+	import { transfers } from '../stores/transferStore.svelte';
 	import Icon from './ui/Icon.svelte';
 	import Logo from './ui/Logo.svelte';
 
@@ -18,24 +19,32 @@
 	];
 
 	let unseen = $derived(!logOpen && logStore.total > seenLogs);
+	// Switching section during a transfer is not allowed: the links stay but go nowhere.
+	let locked = $derived(transfers.active);
 </script>
 
 {#snippet navLinks(className: string)}
 	{#each tabs as item (item.id)}
 		<a
-			href="#{item.id}"
-			class="{className} relative inline-flex min-h-11 items-center justify-center text-[0.8rem] font-medium tracking-[0.16em] uppercase transition-colors after:absolute after:bottom-0 after:left-1/2 after:h-0.5 after:w-4 after:-translate-x-1/2 after:bg-accent after:opacity-0 after:transition-opacity aria-[current=page]:text-fg aria-[current=page]:after:opacity-100 {tab ===
+			href={locked ? undefined : `#${item.id}`}
+			class="{className} relative inline-flex min-h-11 items-center justify-center text-[0.8rem] font-medium tracking-[0.16em] uppercase transition-colors after:absolute after:bottom-0 after:left-1/2 after:h-0.5 after:w-4 after:-translate-x-1/2 after:bg-accent after:opacity-0 after:transition-opacity aria-[current=page]:text-fg aria-[current=page]:after:opacity-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 {tab ===
 			item.id
 				? ''
 				: 'text-muted hover:text-soft'}"
-			aria-current={tab === item.id ? 'page' : undefined}>{item.label}</a
+			aria-current={tab === item.id ? 'page' : undefined}
+			aria-disabled={locked ? 'true' : undefined}>{item.label}</a
 		>
 	{/each}
 {/snippet}
 
 <header class="border-b border-line">
 	<div class="mx-auto flex h-20 max-w-7xl items-center gap-6 px-5 sm:px-10">
-		<a href="#device" class="flex items-center gap-3 text-fg" aria-label="Stellar tools, device">
+		<a
+			href={locked ? undefined : '#device'}
+			class="flex items-center gap-3 text-fg"
+			aria-label="Stellar tools, device"
+			aria-disabled={locked ? 'true' : undefined}
+		>
 			<Logo />
 			<span class="eyebrow hidden text-soft! sm:inline">Stellar</span>
 		</a>

@@ -22,15 +22,33 @@ void init_uart(void)
 	uart_ndma_irq_triglevel(0, 0);
 }
 
-_attribute_ram_code_ void uart_puts(const char* str) 
+// A UART that never finishes a byte must not hang the main loop: waiting for it gives up after
+// UART_BYTE_TIMEOUT_US and the rest of the message is dropped. One byte takes about 87 us at 115200
+// baud. A byte is only queued while the transmitter is idle, so uart_ndma_send_byte's own wait for
+// FIFO space (unbounded) never starts.
+#define UART_BYTE_TIMEOUT_US 1000
+
+_attribute_ram_code_ static uint8_t wait_tx_idle(void)
+{
+	unsigned int start = clock_time();
+
+	while (uart_tx_is_busy())
+	{
+		if (clock_time_exceed(start, UART_BYTE_TIMEOUT_US))
+			return 0;
+		sleep_us(10);
+	}
+	return 1;
+}
+
+_attribute_ram_code_ void uart_puts(const char* str)
 {
 	while (*str != '\0')
 	{
+		if (!wait_tx_idle())
+			return;
 		uart_ndma_send_byte(*str);
-		while (uart_tx_is_busy())
-		{
-			sleep_us(10);
-		};
 		str++;
 	}
+	wait_tx_idle();
 }

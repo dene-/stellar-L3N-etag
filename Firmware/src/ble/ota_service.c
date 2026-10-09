@@ -4,6 +4,7 @@
 #include "stack/ble/ble.h"
 #include "ble/ble.h"
 #include "ble/ota_service.h"
+#include "application/power.h"
 #include "domain/firmware_image.h"
 #include "sections.h"
 
@@ -243,9 +244,16 @@ _attribute_ram_code_ int ota_service_write(void *p)
 		break;
 	case 7: // start the uploaded firmware: 07 C001CEED <crc hi> <crc lo>
 		// On success the device reboots right away. Replies 07 00 <crc hi> <crc lo> on a checksum
-		// mismatch, 07 00 for a malformed command or an image that is not bootable.
+		// mismatch, 07 00 for a malformed command or an image that is not bootable, and 07 02 (before
+		// anything is installed) if the battery is too low for the long flash writes of an install.
 		out_buffer[0] = 0x07;
 		out_buffer[1] = 0x00;
+		if (!power_flash_write_allowed())
+		{
+			out_buffer[1] = 0x02;
+			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
+			break;
+		}
 		if (address != 0xC001CEED || data_len < 7)
 		{
 			bls_att_pushNotifyData(OTA_CMD_OUT_DP_H, out_buffer, 2);
@@ -284,8 +292,11 @@ _attribute_ram_code_ static void reboot(void)
 
 // For images that cannot run from bank 0x20000, staged there while this firmware runs from bank 0.
 // Rewrites the running bank from RAM with interrupts off; a power loss meanwhile leaves no firmware.
+// The boot flag is programmed last, on its own: until then the boot ROM ignores bank 0 as it does
+// any bank without the flag, so a copy that was cut short is never started as a damaged firmware.
 _attribute_ram_code_ static void copy_to_bank_0_and_reboot(void)
 {
+	wd_stop();
 	irq_disable();
 	uint32_t address = 0;
 	while (address < FIRMWARE_BANK_SIZE)
@@ -298,9 +309,10 @@ _attribute_ram_code_ static void copy_to_bank_0_and_reboot(void)
 	{
 		flash_read_page(spare_bank + address, 0x100, ramd_to_flash_temp_buffer);
 		if (address == 0)
-			ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET] = image_flag;
+			ramd_to_flash_temp_buffer[FIRMWARE_FLAG_OFFSET] = 0xFF;
 		flash_write_page(address, 0x100, ramd_to_flash_temp_buffer);
 		address += 0x100;
 	}
+	flash_write_page(FIRMWARE_FLAG_OFFSET, 1, &image_flag);
 	reboot();
 }

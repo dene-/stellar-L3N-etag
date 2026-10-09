@@ -4,6 +4,7 @@
 #include "drivers.h"
 #include "stack/ble/blt_config.h"
 #include "infrastructure/storage/image_store.h"
+#include "domain/crc32.h"
 #include "domain/panel.h"
 #include "sections.h"
 
@@ -36,6 +37,8 @@ typedef struct
 static RAM image_store_header_t image_store_header;
 static RAM uint8_t image_store_ready = 0;
 static RAM uint8_t image_store_display_pending = 0;
+// Between a successful image_store_prepare() and the commit or abort of that upload.
+static RAM uint8_t image_store_upload_active_flag = 0;
 // Data sectors erased since image_store_prepare(), one bit each. An upload erases a sector when its
 // first chunk arrives instead of erasing the whole store up front, which took seconds.
 static RAM uint32_t image_store_erased_sectors[(IMAGE_STORE_DATA_SECTORS + 31) / 32];
@@ -163,6 +166,26 @@ static void image_store_write_bytes(uint32_t address, const uint8_t *data, uint1
   }
 }
 
+// CRC-32 of the image bytes as stored (domain/crc32.h), read back in pages.
+static uint32_t image_store_data_crc(void)
+{
+  uint8_t page[256];
+  uint32_t crc = 0;
+  uint32_t address = IMAGE_STORE_DATA_ADDR;
+  uint32_t remaining = image_store_header.total_data_bytes;
+
+  while (remaining)
+  {
+    uint16_t chunk = remaining < sizeof(page) ? (uint16_t)remaining : (uint16_t)sizeof(page);
+
+    flash_read_page(address, chunk, page);
+    crc = crc32_update(crc, page, chunk);
+    address += chunk;
+    remaining -= chunk;
+  }
+  return crc;
+}
+
 // Firmware before this layout erased the store up to 0x78000, through the SDK's MAC address
 // (CFG_ADR_MAC, 0x76000) and crystal calibration (CUST_CAP_INFO_ADDR, 0x77000) sectors, and a
 // large upload wrote image bytes there. Such stores are dropped, and the two sectors erased so the
@@ -203,9 +226,7 @@ void image_store_init(void)
 void image_store_clear(void)
 {
   image_store_erase_all_blocks();
-  memset(&image_store_header, 0, sizeof(image_store_header));
-  image_store_ready = 0;
-  image_store_display_pending = 0;
+  image_store_abort();
 }
 
 uint8_t image_store_prepare(uint8_t model, uint16_t width, uint16_t height, uint16_t plane_size,
@@ -245,6 +266,7 @@ uint8_t image_store_prepare(uint8_t model, uint16_t width, uint16_t height, uint
   image_store_header.total_data_bytes = total_data_bytes;
   image_store_ready = 0;
   image_store_display_pending = 0;
+  image_store_upload_active_flag = 1;
 
   return 1;
 }
@@ -253,7 +275,7 @@ uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t off
 {
   uint32_t address;
 
-  if (image_store_header.image_count == 0)
+  if (!image_store_upload_active_flag)
   {
     return 0;
   }
@@ -279,39 +301,40 @@ uint8_t image_store_write_chunk(uint8_t image_index, uint8_t plane, uint16_t off
   return 1;
 }
 
-uint8_t image_store_finalize(void)
+uint8_t image_store_finalize(uint8_t check_crc, uint32_t crc)
 {
-  if (image_store_header.image_count == 0)
+  if (!image_store_upload_active_flag)
   {
-    return 0;
+    return IMAGE_STORE_COMMIT_FAILED;
   }
 
   // Chunks left out (all 0xFF) may have skipped whole sectors that still hold old images.
   image_store_erase_data_once(IMAGE_STORE_DATA_ADDR, image_store_header.total_data_bytes);
+  if (check_crc && image_store_data_crc() != crc)
+  {
+    // The header is still erased from image_store_prepare(), so the store stays empty.
+    image_store_abort();
+    return IMAGE_STORE_COMMIT_CRC_MISMATCH;
+  }
   image_store_header.checksum = image_store_checksum(&image_store_header);
   image_store_write_bytes(IMAGE_STORE_BASE_ADDR, (const uint8_t *)&image_store_header, sizeof(image_store_header));
+  image_store_upload_active_flag = 0;
   image_store_ready = 1;
   image_store_display_pending = 1;
-  return 1;
+  return IMAGE_STORE_COMMIT_OK;
 }
 
-// The header has the first sector to itself (the images start at IMAGE_STORE_DATA_ADDR), so it is
-// rewritten in place; a power loss between the erase and the write drops the images.
-uint8_t image_store_set_interval_seconds(uint16_t interval_seconds)
+void image_store_abort(void)
 {
-  if (!image_store_ready)
-  {
-    return 0;
-  }
-  if (image_store_header.interval_seconds == interval_seconds)
-  {
-    return 1;
-  }
-  image_store_header.interval_seconds = interval_seconds;
-  image_store_header.checksum = image_store_checksum(&image_store_header);
-  flash_erase_sector(IMAGE_STORE_BASE_ADDR);
-  image_store_write_bytes(IMAGE_STORE_BASE_ADDR, (const uint8_t *)&image_store_header, sizeof(image_store_header));
-  return 1;
+  memset(&image_store_header, 0, sizeof(image_store_header));
+  image_store_upload_active_flag = 0;
+  image_store_ready = 0;
+  image_store_display_pending = 0;
+}
+
+uint8_t image_store_upload_active(void)
+{
+  return image_store_upload_active_flag;
 }
 
 uint8_t image_store_has_images(void)

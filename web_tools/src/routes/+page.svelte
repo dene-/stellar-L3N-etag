@@ -6,6 +6,7 @@
 	import ImagesView from '../components/images/ImagesView.svelte';
 	import FirmwareView from '../components/firmware/FirmwareView.svelte';
 	import { logStore } from '../stores/logStore.svelte';
+	import { transfers } from '../stores/transferStore.svelte';
 
 	const TABS: Tab[] = ['device', 'images', 'firmware'];
 
@@ -22,9 +23,14 @@
 		logOpen = !logOpen;
 		seenLogs = logStore.total;
 	}
+
+	// Closing or reloading the page cuts a transfer off; the browser asks first.
+	function confirmLeave(event: BeforeUnloadEvent) {
+		if (transfers.active) event.preventDefault();
+	}
 </script>
 
-<svelte:window onhashchange={() => (tab = tabFromHash())} />
+<svelte:window onhashchange={() => (tab = tabFromHash())} onbeforeunload={confirmLeave} />
 
 <div class="mx-auto flex min-h-dvh max-w-[1440px] flex-col">
 	<AppHeader {tab} {logOpen} {seenLogs} onlog={toggleLog} />
