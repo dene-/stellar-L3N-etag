@@ -327,8 +327,13 @@ describes the protocol.
 With Docker (any platform, including ARM Macs):
 
 ```sh
-./build_docker.sh
+./build_docker.sh         # arguments go to make, e.g. ./build_docker.sh clean
 ```
+
+The script builds the `telink-tc32` image (Ubuntu with make and Python; the toolchain is bundled in
+`Firmware/tc32_linux`) only when `Dockerfile.tc32` changed since the last build, removes the image it
+replaces, and runs make as your user, so it leaves no stopped containers, untagged images or
+root-owned files behind. `REBUILD=1 ./build_docker.sh` rebuilds the image anyway.
 
 On Windows: `cd Firmware && makeit.exe clean && makeit.exe -j12`.
 
